@@ -1,518 +1,466 @@
-Ansible role for MongoDB 
-===========
+# maprangzth.mongodb
 
-Version v1.6.5
+**v2.0.0** — Ansible role for MongoDB 7.0 / 8.0 (plus 6.0 deprecated tier)
+
+Forked from [`superset1/ansible-role-mongodb`](https://github.com/superset1/ansible-role-mongodb) (unmaintained since 2023) at v1.6.5. MIT licensed.
+
+> **Upgrading from v1.x?** Read [`docs/MIGRATION-v2.md`](docs/MIGRATION-v2.md) first. v2.0 is a clean-break release — several vars were renamed or removed.
+
+---
+
+## Platforms
+
+### PR-blocking CI (all PRs must pass)
+
+| Distribution | MongoDB 7.0 | MongoDB 8.0 | amd64 | arm64 |
+|---|---|---|---|---|
+| Debian 12 (Bookworm) | yes | yes | yes | yes |
+| Ubuntu 22.04 (Jammy) | yes | yes | yes | — |
+| Ubuntu 24.04 (Noble) | yes | yes | yes | — |
+| RHEL / Rocky 9 | yes | yes | yes | yes |
+
+### Nightly only (not blocking for PRs)
+
+| Distribution | MongoDB | Notes |
+|---|---|---|
+| RHEL / Rocky 8 | 7.0, 8.0 | Requires `ansible_python_interpreter: /usr/bin/python3.9` |
+| Debian 12 arm64 | 7.0, 8.0 | Nightly arm64 extended suite |
+| MongoDB 6.0 (any) | all platforms | Deprecated tier; requires `mongodb_allow_eol_version: true` |
+
+**Dropped in v2.0:** Amazon Linux (all versions), MongoDB ≤ 5.0, Ubuntu 16.04/18.04/20.04, Debian 8/9/10.
+
+---
+
+## Install
+
+### Ansible Galaxy
+
+```bash
+ansible-galaxy role install maprangzth.mongodb,v2.0.0
+```
+
+### requirements.yml (git URL)
+
+```yaml
+- src: https://github.com/maprangzth/ansible-role-mongodb.git
+  version: "v2.0.0"
+  name: maprangzth.mongodb
+```
+
+### Collection dependency
+
+v2.0 requires `community.mongodb >= 1.7.0`:
+
+```bash
+ansible-galaxy collection install -r requirements.yml
+```
+
+---
+
+## Quick Start
+
+### Standalone
+
+```ini
+# hosts.ini
+[mongo_standalone]
+db1.example.com
+```
+
+```yaml
+# group_vars/mongo_standalone.yml
+mongodb_version: "8.0"
+mongodb_root_admin_password: "change-me"
+mongodb_user_admin_password: "change-me"
+mongodb_root_backup_password: "change-me"
+mongodb_exporter_password: "change-me"
+```
+
+```yaml
+# playbook.yml
+- hosts: mongo_standalone
+  become: true
+  roles:
+    - role: maprangzth.mongodb
+```
+
+### Replicaset
+
+```ini
+# hosts.ini
+[mongo_cluster]
+db1.example.com mongodb_master=True
+db2.example.com
+db3.example.com
+```
+
+```yaml
+# group_vars/mongo_cluster.yml
+mongodb_version: "8.0"
+
+mongodb_replication_replSetName: "rs01"
+mongodb_replication_oplogSizeMB: 4096
+
+# Generate with: openssl rand -base64 756
+mongodb_security_keyfile_content: |
+  <output of openssl rand -base64 756>
+
+mongodb_root_admin_password: "change-me"
+mongodb_user_admin_password: "change-me"
+mongodb_root_backup_password: "change-me"
+mongodb_exporter_password: "change-me"
+```
+
+```yaml
+# playbook.yml — always use serial: 1 for rolling restarts
+- hosts: mongo_cluster
+  become: true
+  serial: 1
+  roles:
+    - role: maprangzth.mongodb
+```
+
+> **serial: 1** is required for replicaset plays to prevent simultaneous restarts that would lose quorum.
+
+### RHEL / Rocky 8 note
+
+Rocky 8 ships Python 3.6 by default. Install Python 3.9 on targets and set the interpreter:
+
+```bash
+# On each Rocky 8 target
+dnf install -y python39
+```
+
+```yaml
+# group_vars/rocky8_hosts.yml
+ansible_python_interpreter: /usr/bin/python3.9
+```
+
+---
 
 ## Content
-------------
-- [General info](#general-info)
-  - [What's new](#whats-new-in-v165)
-  - [Feature](#feature)
-  - [Requirements](#requirements)
-  - [Tags](#tags)
-- [MongoDB support matrix](#mongodb-support-matrix)
-- [Variables](#variables)
-- [Usage](#usage)
-  - [Prepare system environment variables](#prepare-system-environment-variables)
-  - [Standalone](#standalone)
-    - [Example hosts file without replication](#example-hosts-file-without-replication)
-    - [Example var file without replication with required variables](#example-var-file-without-replication-with-required-variables)
-  - [Replicaset](#replicaset)
-    - [Example hosts file for replication](#example-hosts-file-for-replication)
-    - [Example var file for replication](#example-var-file-for-replication)
+
+- [Platforms](#platforms)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Variables Reference](#variables-reference)
+  - [Core](#core)
+  - [User / group](#user--group)
+  - [Network](#network)
+  - [TLS](#tls)
+  - [Process / systemd](#process--systemd)
+  - [Security](#security)
+  - [Storage](#storage)
+  - [Logging](#logging)
+  - [Operation Profiling](#operation-profiling)
+  - [Replication](#replication)
   - [Sharding](#sharding)
-    - [Example hosts file for sharded cluster](#example-hosts-file-for-sharded-cluster)
-    - [Example var file for sharded cluster](#example-var-file-for-sharded-cluster)
-  - [Other examples](#other-examples)
-    - [Adding and deleting members in the replicaset](#adding-and-deleting-members-in-the-replicaset)
-    - [Adding normal users to the worked production database with custom role](#adding-normal-users-to-the-worked-production-database-with-custom-role)
-    - [Deleting normal users from the worked production database](#deleting-normal-users-from-the-worked-production-database)
-    - [Updating passwords for admins and normal users](#updating-passwords-for-admins-and-normal-users)
-    - [Reset lost admin and user passwords](#reset-lost-admin-and-user-passwords)
-  - [License](#license)
+  - [Inventory groups](#inventory-groups)
+  - [Mongos](#mongos)
+  - [Users / passwords](#users--passwords)
+  - [mongodb-exporter](#mongodb-exporter)
+  - [Uninstall mode](#uninstall-mode)
+  - [Misc](#misc)
+  - [Custom config escape hatch](#custom-config-escape-hatch)
+- [Usage Examples](#usage-examples)
+  - [Replicaset setup](#replicaset-setup)
+  - [Sharded cluster](#sharded-cluster)
+  - [TLS configuration](#tls-configuration)
+  - [Custom roles and users](#custom-roles-and-users)
+  - [Managing users at runtime](#managing-users-at-runtime)
+  - [Password updates](#password-updates)
+  - [Reset lost admin passwords](#reset-lost-admin-passwords)
+  - [Prometheus exporter](#prometheus-exporter)
+- [Tags](#tags)
+- [License](#license)
 
-## General info
+---
 
-Ansible role which manages [MongoDB](http://www.mongodb.org/)
+## Variables Reference
 
-- Install and configure the MongoDB
-- Configure mongodb users
-- Configure logrotare
-- Configure replication
-- Configure sharding
-- Configure arbiter
-- Provide handlers for restart and reload
-- Setup MMS automation agent
-- Setup mongodb-exporter prometheus metrics
+All defaults are in `defaults/main.yml`. Variables are organized by section.
 
-### What's new in v1.6.5
-- Added example to README "Reset lost admin and user passwords"
-- Added variable `mongodb_cloud_enabled: false` because free cloud monitoring is deprecated https://www.mongodb.com/docs/v6.0/administration/free-monitoring/#free-monitoring
-### Feature
-- Supported versions MongoDB: 3.4, 3.6, 4.0, 4.2, 4.4, 5.0, 6.0
-- Supports creation users on worked base without crash
-- Supports vault
-- Supports replicaset
-- Supports sharding
-- Supports arbiter
-- Supports SSL/TLS
-- Idempotency: the role does not reload the working database
-- Able to remove everything related to MongoDB from the server
+### Core
 
-### Requirements
-- pip install hvac (if need to use vault module)
-- ansible-galaxy collection install community.mongodb (check that `community.mongodb` module >= 1.4)
-- run AVX if `mongodb_version` >= 5.0
-- run `openssl rand -base64 756` and fill the `mongodb_keyfile_content` variable for MongoDB cluster or sharding
-- set admins passwords
-  - `mongodb_user_admin_password`
-  - `mongodb_root_admin_password`
-  - `mongodb_root_backup_password`
-  - `mongodb_exporter_password`
-- create groups in the hosts file
-  - `mongo_standalone` for standalone server
-  - `mongo_cluster` for replicaset cluster
-  - `mongocfg_servers` for sharded cluster (config servers)
-  - `mongos_servers` for sharded cluster (mongos or in other words router servers)
-  - `mongo_shard_[0-9]` for sharded cluster (replicaset shards)
-- set required values for keys in `mongodb_net_tls_config` dict, when `mongodb_net_tls_enabled: true`
-  - `mode`
-  - `certificateKeyFileContent` or `certificateSelector`
-  - `CAFileContent`
-
-### Tags
-- mongodb (main tag for all mongodb tasks | optional tag)
-- mongodb-install (install mongodb only)
-- mongodb-configure (initial mongodb configure)
-- mongodb-logrotate (configure mongodb logrotate)
-- mongodb-replicaset (configure replicaset)
-- mongodb-create-admin-users (create initial users)
-- mongodb-create-oplog-users (create oplog users)
-- mongodb-add-users (add normal users anytime even on worked prod mongodb)
-- mongodb-commands (run some commands in MongoDB)
-- mongodb-force-restart (restart service mongodb | default is start only)
-- mongos (main tag for all mongos tasks | optional tag)
-- mongos-install (install mongos only)
-- mongos-configure (initial mongos configure)
-- mongos-logrotate (configure mongos logrotate)
-- mongos-sharding (configure shards)
-- mongos-force-restart (restart service mongos | default is start only)
-- mongodb-mms (install mms agent)
-- mongodb-exporter (install mongodb-exporter)
-- mongodb-uninstall (uninstall mongodb, mongodb-exporter, but don't delete database)
-- mongodb-uninstall-exporter (uninstall mongodb-exporter, but don't delete database)
-- mongodb-dbdelete (delete database)
-- mongos-uninstall (uninstall mongos, mongodb-exporter, but don't delete database)
-
-## MongoDB support matrix:
-
-| Distribution   | < MongoDB 3.2 |    MongoDB 3.4     |    MongoDB 3.6     |    MongoDB 4.0     |   MongoDB 4.2      |   MongoDB 4.4-6.0  |
-| -------------- | :-----------: | :----------------: | :----------------: | :----------------: | :----------------: | :----------------: |
-| Ubuntu 16.04   |  :no_entry:   | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Ubuntu 18.04   |  :no_entry:   |        :x:         |        :x:         | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Ubuntu 20.04   |  :no_entry:   |        :x:         |        :x:         |        :x:         |        :x:         | :white_check_mark: |
-| Debian 8.x     |  :no_entry:   | :white_check_mark: | :white_check_mark: | :white_check_mark: |        :x:         |        :x:         |
-| Debian 9.x     |  :no_entry:   |        :x:         | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Debian 10.x    |  :no_entry:   |        :x:         |        :x:         |        :x:         | :white_check_mark: | :white_check_mark: |
-| RHEL 6.x       |  :no_entry:   | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| RHEL 7.x       |  :no_entry:   | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| RHEL 8.x       |  :no_entry:   |        :x:         | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Amazon Linux 2 |  :no_entry:   | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-
-:exclamation: **MongoDB version >= 5.0 requires use of the AVX instruction set, available on select Intel and AMD processors**
-
-Для запуска сервиса mongodb ver >= 5.0 требуется поддержка avx инструкций на уровне CPU
-
-- :white_check_mark: - fully tested, should works fine
-- :x: - don't have official support
-- :no_entry: - MongoDB has reached EOL
-
-## Variables
 ```yaml
-# You can use this variable to control installation source of MongoDB
-# 'mongodb' will be installed from Debian/Ubuntu repos
-# 'mongodb-org' will be installed from MongoDB official repos
+mongodb_version: "8.0"              # MongoDB version to install. Supported: "6.0" (deprecated), "7.0", "8.0"
+mongodb_major_version: "{{ mongodb_version[0:3] }}"  # Computed — do not override
+mongodb_allow_major_upgrade: false  # Set true to opt in to in-place major version upgrade (manual step-wise upgrade required first)
+mongodb_allow_eol_version: false    # Set true to allow MongoDB 6.0 (deprecated tier); role fails preflight if false and version is 6.0
+mongodb_allow_non_serial_apply: false  # Set true to bypass rolling-restart preflight warning (not recommended)
+```
 
-# You can control installed version via this param.
-# Should be '3.4', '3.6', '4.0', '4.2', '4.4', '5.0', or '6.0'. This role doesn't support MongoDB < 3.4.
-# I will recommend you to use latest version of MongoDB.
+### User / group
 
-## Main options
-mongodb_daemon_name: "{{ 'mongod' if ('mongodb-org' in mongodb_package) else 'mongodb' }}"
-mongodb_force_install: false                     # Forced installation if there are any problems or you need to do a downgrade
-mongodb_package: "mongodb-org"
-mongodb_package_state: "present"
-mongodb_reconfigure: false                       # Reconfigure MongoDB
-mongodb_version: "4.4"                           # Default MongoDB version
+```yaml
+mongodb_user: "{{ 'mongod' if ansible_os_family == 'RedHat' else 'mongodb' }}"
+mongodb_group: "{{ mongodb_user }}"
+```
 
-mongodb_pymongo_from_pip: true                   # Install latest PyMongo via PIP or package manager
-mongodb_pymongo_pip_version: 4.2.0               # Choose PyMong version to install from pip. If not set use latest
+### Network
 
-mongodb_admin_update_password: false             # Update admin passwords every play if true
-mongodb_users_update_password: false             # Update normal user passwords every play if true
-mongodb_manage_service: true
+```yaml
+mongodb_net_bindIp: "0.0.0.0"      # Comma-separated IPs to bind; override for internal-only
+mongodb_net_bind_ip_all: false      # Bind to all IPs (alternative to bindIp)
+mongodb_net_ipv6: false             # Enable IPv6
+mongodb_net_maxConns: 65536         # Max simultaneous connections
+mongodb_net_port: 27017             # mongod listen port
+```
 
+### TLS
+
+v2.0 uses flat `mongodb_net_tls_*` vars. See [`docs/MIGRATION-v2.md §4`](docs/MIGRATION-v2.md#4-tls-migration) for migration from v1 nested dicts.
+
+```yaml
+mongodb_net_tls_enabled: false
+mongodb_net_tls_mode: ""                           # disabled|allowTLS|preferTLS|requireTLS
+mongodb_net_tls_certificateKeyFile: ""             # Path to server PEM (cert + key) on target
+mongodb_net_tls_CAFile: ""                         # Path to CA certificate on target
+mongodb_net_tls_CRLFile: ""                        # Path to CRL file on target (optional)
+mongodb_net_tls_clusterFile: ""                    # Path to inter-node cluster membership PEM
+mongodb_net_tls_clusterCAFile: ""                  # Path to cluster CA PEM
+mongodb_net_tls_allowConnectionsWithoutCertificates: false
+mongodb_net_tls_allowInvalidCertificates: false    # Dev/test only
+mongodb_net_tls_allowInvalidHostnames: false       # Dev/test only
+mongodb_net_tls_FIPSMode: false
+mongodb_net_tls_disabledProtocols: ""              # e.g., "TLS1_0,TLS1_1"
+mongodb_net_tls_logVersions: ""                    # Log connections by TLS version
+```
+
+### Process / systemd
+
+```yaml
+mongodb_processManagement_fork: "{{ ansible_os_family == 'RedHat' }}"
 mongodb_systemd_unit_limit_nofile: 64000
 mongodb_systemd_unit_limit_nproc: 64000
-
-mongodb_disable_transparent_hugepages: false
-
+mongodb_disable_transparent_hugepages: false       # Recommended true for production
 mongodb_use_numa: false
+```
 
-mongodb_login_database: "admin"
+### Security
 
-mongodb_user: "{{ 'mongod' if ('RedHat' == ansible_os_family) else 'mongodb' }}"
-mongodb_group: "{{ 'mongod' if ('RedHat' == ansible_os_family) else 'mongodb' }}"
-  
-## Net options
-mongodb_net_bindip: 0.0.0.0                      # Comma separated list of ip addresses to listen on
-mongodb_net_bind_ip_all: false
-mongodb_net_http_enabled: false                  # Enable http interface
-mongodb_net_ipv6: false                          # Enable IPv6 support (disabled by default)
-mongodb_net_maxconns: 65536                      # Max number of simultaneous connections
-mongodb_net_port: 27017                          # Specify port number
-mongodb_net_ssl_enabled: false                   # Enable or disable SSL connections (mongodb_net_ssl_enabled and mongodb_net_tls_enabled options are mutually exclusive. You can only specify one)
-mongodb_net_ssl_config:                          # MongoDB SSL config is used if MongoDB version < 4.2
-    mode: "" # <requireSSL / preferSSL / allowSSL / disabled> Enables SSL used for all network connections. The argument to the net.ssl.mode setting can be only one.
-    certificateSelector: "" # Specifies a certificate property in order to select a matching certificate from the operating system's certificate store to use for TLS/SSL (net.ssl.PEMKeyFile and net.ssl.certificateSelector options are mutually exclusive. You can only specify one).
-    PEMKeyFileContent: "" # The .pem content with both the SSL certificate and key (net.ssl.PEMKeyFile and net.ssl.certificateSelector options are mutually exclusive. You can only specify one).
-    PEMKeyPassword: "" # The password to de-crypt the certificate-key file (i.e. PEMKeyFile). Use the net.ssl.PEMKeyPassword option only if the certificate-key file is encrypted. In all cases, the mongos or mongod will redact the password from all logging and reporting output.
-    CAFileContent: "" # The .pem content with the root certificate chain from the Certificate Authority.
-    CRLFileContent: "" # The .pem content with the Certificate Revocation List.
-    clusterCertificateSelector: "" # Specifies a certificate property to select a matching certificate from the operating system's secure certificate store to use for internal x.509 membership authentication (net.ssl.clusterFile and net.ssl.clusterCertificateSelector options are mutually exclusive. You can only specify one).
-    clusterFileContent: "" # The .pem content with the x.509 certificate-key file for membership authentication for the cluster or replica set (net.ssl.clusterFile and net.ssl.clusterCertificateSelector options are mutually exclusive. You can only specify one).
-    clusterPassword: "" # The password to de-crypt the x.509 certificate-key file specified with --sslClusterFile. Use the net.ssl.clusterPassword option only if the certificate-key file is encrypted. In all cases, the mongos or mongod will redact the password from all logging and reporting output.
-    clusterCAFileContent: "" # The .pem content with the root certificate chain from the Certificate Authority used to validate the certificate presented by a client establishing a connection. net.ssl.clusterCAFile requires that net.ssl.CAFile is set.
-    allowConnectionsWithoutCertificates: # <true|false> For clients that don't provide certificates, mongod or mongos encrypts the TLS/SSL connection, assuming the connection is successfully made.
-    allowInvalidCertificates: # <true|false> Enable or disable the validation checks for SSL certificates on other servers in the cluster and allows the use of invalid certificates to connect.
-    allowInvalidHostnames: # <true|false> When net.ssl.allowInvalidHostnames is true, MongoDB disables the validation of the hostnames in TLS/SSL certificates, allowing mongod to connect to MongoDB instances if the hostname their certificates do not match the specified hostname. 
-    FIPSMode: # <true|false> Enable or disable the use of the FIPS mode of the SSL library for the mongos or mongod. Your system must have a FIPS compliant library to use the net.ssl.FIPSMode option.
-    disabledProtocols: "" # <TLS1_0 / TLS1_1 / TLS1_2 / none> Prevents a MongoDB server running with TLS/SSL from accepting incoming connections that use a specific protocol or protocols. To specify multiple protocols, use a comma separated list of protocols.
-  
-mongodb_net_tls_enabled: false                   # Enable or disable TLS connections (mongodb_net_ssl_enabled and mongodb_net_tls_enabled options are mutually exclusive. You can only specify one)
-mongodb_net_tls_config:                          # MongoDB TLS config is used if MongoDB version >= 4.2
-  mode: "" # <requireTLS / preferTLS / allowTLS / disabled> Enables TLS used for all network connections. The argument to the net.tls.mode setting can be only one.
-  certificateSelector: "" # Specifies a certificate property in order to select a matching certificate from the operating system's certificate store to use for TLS/SSL (net.tls.certificateKeyFile and net.tls.certificateSelector options are mutually exclusive. You can only specify one).
-  certificateKeyFileContent: "" # The .pem content with both the TLS certificate and key (net.tls.certificateKeyFile and net.tls.certificateSelector options are mutually exclusive. You can only specify one).
-  certificateKeyFilePassword: "" # The password to de-crypt the certificate-key file (i.e. certificateKeyFile). Use the net.tls.certificateKeyFilePassword option only if the certificate-key file is encrypted. In all cases, the mongos or mongod will redact the password from all logging and reporting output.
-  CAFileContent: "" # The .pem content with the root certificate chain from the Certificate Authority.
-  CRLFileContent: "" # The .pem content with the Certificate Revocation List.
-  clusterCertificateSelector: "" # Specifies a certificate property to select a matching certificate from the operating system's secure certificate store to use for internal x.509 membership authentication (net.tls.clusterFile and net.tls.clusterCertificateSelector options are mutually exclusive. You can only specify one).
-  clusterFileContent: "" # The .pem content with the x.509 certificate-key file for membership authentication for the cluster or replica set (net.tls.clusterFile and net.tls.clusterCertificateSelector options are mutually exclusive. You can only specify one).
-  clusterPassword: "" # The password to de-crypt the x.509 certificate-key file specified with --sslClusterFile. Use the net.tls.clusterPassword option only if the certificate-key file is encrypted. In all cases, the mongos or mongod will redact the password from all logging and reporting output.
-  clusterCAFileContent: "" # The .pem content with the root certificate chain from the Certificate Authority used to validate the certificate presented by a client establishing a connection. net.tls.clusterCAFile requires that net.tls.CAFile is set.
-  allowConnectionsWithoutCertificates: # <true|false> For clients that don't provide certificates, mongod or mongos encrypts the TLS/SSL connection, assuming the connection is successfully made.
-  allowInvalidCertificates: # <true|false> Enable or disable the validation checks for TLS certificates on other servers in the cluster and allows the use of invalid certificates to connect.
-  allowInvalidHostnames: # <true|false> When net.tls.allowInvalidHostnames is true, MongoDB disables the validation of the hostnames in TLS certificates, allowing mongod to connect to MongoDB instances if the hostname their certificates do not match the specified hostname. 
-  FIPSMode: # <true|false> Enable or disable the use of the FIPS mode of the TLS library for the mongos or mongod. Your system must have a FIPS compliant library to use the net.tls.FIPSMode option.
-  disabledProtocols: "" # <TLS1_0 / TLS1_1 / TLS1_2 / none> Prevents a MongoDB server running with TLS from accepting incoming connections that use a specific protocol or protocols. To specify multiple protocols, use a comma separated list of protocols.
-  logVersions: "" # <TLS1_0 / TLS1_1 / TLS1_2 / TLS1_3> Instructs mongos or mongod to log a message when a client connects using a specified TLS version. Specify either a single TLS version or a comma-separated list of multiple TLS versions.
+```yaml
+mongodb_security_authorization_enabled: true       # Enable access control
+mongodb_security_javascript_enabled: false         # Disable server-side JS (recommended false)
+mongodb_security_keyfile_path: /etc/mongodb-keyfile  # Path on target for keyfile
+mongodb_security_keyfile_content: ""               # REQUIRED for replicasets. Generate: openssl rand -base64 756
+```
 
-## ProcessManagement options
-# Fork server process
-# Enabled by default for RedHat as the init scripts assume forking is enabled.
-mongodb_processmanagement_fork: "{{ 'RedHat' == ansible_os_family }}"
+### Storage
 
-## Security options
-# Disable or enable security. Possible values: 'disabled', 'enabled'
-mongodb_security_authorization_enabled: true
-mongodb_security_javascript_enabled: false
-mongodb_security_keyfile_path: /etc/mongodb-keyfile       # Specify path to keyfile with password for inter-process authentication
-mongodb_keyfile_content: ""                      # Please generate this file on production environment with command 'openssl rand -base64 756'
+```yaml
+mongodb_storage_dbPath: /var/lib/mongodb           # Data directory
+mongodb_storage_engine: wiredTiger                 # Only wiredTiger supported in 6.0+
+mongodb_storage_wiredTiger_cacheSizeGB: ""         # WiredTiger cache size in GB (empty = auto)
+mongodb_storage_wiredTiger_directoryForIndexes: false  # Store indexes in separate directories
+mongodb_storage_journal_enabled: true
+mongodb_storage_dirperdb: false                    # One subdirectory per database
+mongodb_storage_journal_commitIntervalMs: 100
+```
 
-## Storage options
-mongodb_storage_dbpath: /data/db                 # Directory for datafiles
-mongodb_storage_dirperdb: false                  # Use one directory per DB
+### Logging
 
-# The storage engine for the mongod database
-mongodb_storage_engine: "wiredTiger"
-# mmapv1 specific options
-mongodb_storage_quota_enforced: false            # Limits each database to a certain number of files
-mongodb_storage_quota_maxfiles: 8                # Number of quota files per DB
-mongodb_storage_smallfiles: false                # Very useful for non-data nodes
+```yaml
+mongodb_systemLog_destination: file               # file or syslog
+mongodb_systemLog_logAppend: true                 # Append to log vs overwrite
+mongodb_systemLog_path: /var/log/mongodb/mongod.log
+```
 
-mongodb_storage_journal_enabled: true            # Enable journaling
-mongodb_storage_journal_commitIntervalMs: 100    # The maximum amount of time in milliseconds that the mongod process allows between journal operations. Values can range from 1 to 500 milliseconds. Lower values increase the durability of the journal, at the expense of disk performance. (Default: 100)
-mongodb_storage_prealloc: true                   # Enable data file preallocation
+### Operation Profiling
 
-mongodb_storage_wiredtiger_cache_size: ""
-mongodb_storage_wiredtiger_directory_for_indexes: false
+```yaml
+mongodb_operationProfiling_slowOpThresholdMs: 100  # Log ops slower than this (ms)
+mongodb_operationProfiling_mode: "off"             # off|slowOp|all
+```
 
-## SystemLog options
-## The destination to which MongoDB sends all log output. Specify either 'file' or 'syslog'.
-## If you specify 'file', you must also specify mongodb_systemlog_path.
-mongodb_systemlog_destination: "file"
-mongodb_systemlog_logappend: true                                        # Append to logpath instead of over-writing
-mongodb_systemlog_logrotate: "rename"                                    # Logrotation behavior
-mongodb_systemlog_path: /var/log/mongodb/{{ mongodb_daemon_name }}.log   # Log file to send write to instead of stdout
-mongodb_systemlog_logrotate_config:
-  period: daily
-  size: 1G
-  rotate: 5
-  create: true
-  missingok: true
-  compress: true
-  delaycompress: true
-  notifempty: true
-  sharedscripts: true
-  postrotate: /bin/kill -SIGUSR1 $(pidof {{ mongodb_daemon_name }}) && rm -f {{ mongodb_systemlog_path }}.20*
+### Replication
 
-## Operation Profiling options
-mongodb_operation_profiling_slow_op_threshold_ms: 100
-mongodb_operation_profiling_mode: "off"
+```yaml
+mongodb_replication_replSetName: ""               # Replicaset name. Required for replicaset/sharded topologies
+mongodb_replication_oplogSizeMB: 4096             # Oplog size in MB
+mongodb_replication_reconfigure: false            # Set true to reconfigure replicaset members (add/remove)
+mongodb_replication_replindexprefetch: all        # Index prefetching for secondaries: none|_id_only|all
+```
 
-## Cloud options (MongoDB >= 4.0)
-mongodb_cloud_enabled: false # Because deprecated https://www.mongodb.com/docs/v6.0/administration/free-monitoring/#free-monitoring
-mongodb_cloud_monitoring_free_state: "runtime"
+### Sharding
 
-## MongoDB Standalone options
+```yaml
+mongodb_sharding_state: present                   # present|absent — whether to add shard to cluster
+mongodb_sharding_clusterRole: ""                  # shardsvr|configsvr|"" (empty = not a sharding member)
+mongodb_sharded_databases: []                     # List of databases to run sh.enableSharding() on
+```
+
+### Inventory groups
+
+```yaml
 mongodb_standalone_host_group: "mongo_standalone"
-
-## Replication options
-mongodb_replication_enabled: "{{ true if (mongodb_replication_host_group in mongodb_main_group or mongodb_sharded_host_group in mongodb_main_group or mongodb_config_host_group in mongodb_main_group) else false }}"    # Enable replication
 mongodb_replication_host_group: "mongo_cluster"
-mongodb_replication_replset: "{{ ('rs' + mongodb_main_group.split('_')[-1] if mongodb_sharded_host_group in mongodb_main_group else mongodb_config_replication_replset_name if mongodb_main_group == mongodb_config_host_group else '') if mongodb_sharding_enabled else 'rs01' if mongodb_main_group == mongodb_replication_host_group else '' }}"      # Default name of replicaset
-mongodb_replication_replindexprefetch: "all"                          # Specify index prefetching behavior (if secondary) [none|_id_only|all]
-mongodb_replication_oplogsize: 4096                                   # Specifies a maximum size in megabytes for the replication operation log
-mongodb_replication_oplogresize: false                                # Resize the replication operation log
-mongodb_replication_reconfigure: false                                # Reconfigure replicaset for add or delete members
-
-## Sharding options
-mongodb_sharding_state: "present"                                     # Adding replicaset to sharding the cluster
-mongodb_sharded_databases: []                                         # List of databases to run command sh.enableSharding()
-mongodb_sharded_host_group: "mongo_shard_"                            # Prefix for shards group in the hosts file
-
-## Mongocfg options
+mongodb_sharded_host_group: "mongo_shard_"        # Prefix; shards are mongo_shard_01, mongo_shard_02, etc.
 mongodb_config_host_group: "mongocfg_servers"
-mongodb_config_replication_replset_name: "cfg"
-
-## Mongos options
 mongos_host_group: "mongos_servers"
-mongos_daemon_name: "mongos"
-mongos_force_install: false                                           # Forced installation if there are any problems or you need to do a downgrade
-mongos_package: "mongodb-org-mongos"
-mongos_package_state: "present"
-mongos_reconfigure: false                                             # Reconfigure Mongos
-mongos_version: "{{ mongodb_version }}"
+```
 
-mongos_user: "{{ 'mongos' if ('RedHat' == ansible_os_family) else 'mongodb' }}"
-mongos_group: "{{ 'mongos' if ('RedHat' == ansible_os_family) else 'mongodb' }}"
+### Mongos
 
-mongos_systemlog_destination: "file"
-mongos_systemlog_logappend: true
-mongos_systemlog_logrotate: "rename"
-mongos_systemlog_path: /var/log/mongodb/{{ mongos_daemon_name }}.log
-mongos_systemlog_logrotate_config:
-  period: daily
-  size: 1G
-  rotate: 5
-  create: true
-  missingok: true
-  compress: true
-  delaycompress: true
-  notifempty: true
-  sharedscripts: true
-  postrotate: /bin/kill -SIGUSR1 $(pidof {{ mongos_daemon_name }}) && rm -f {{ mongos_systemlog_path }}.20*
+```yaml
+mongos_user: "{{ 'mongos' if ansible_os_family == 'RedHat' else 'mongodb' }}"
+mongos_group: "{{ mongos_user }}"
+mongos_net_port: 27017
+mongos_net_bindIp: "0.0.0.0"
+mongos_security_keyfile_path: "{{ mongodb_security_keyfile_path }}"
+mongos_security_keyfile_content: "{{ mongodb_security_keyfile_content }}"
+```
 
-mongos_systemd_unit_limit_nofile: 64000
-mongos_systemd_unit_limit_nproc: 64000
+### Users / passwords
 
-mongos_net_port: 27017                                   # Specify port number
-mongos_net_bindip: 0.0.0.0                               # Comma separated list of ip addresses to listen on
-mongos_net_bind_ip_all: false
-mongos_net_tls_enabled: false
-mongos_net_compressors: null
-mongos_certificate_key_file: ""
-mongos_certificate_ca_file: ""
-mongos_security_keyfile_path: "{{ mongodb_security_keyfile_path }}"        # Specify path to keyfile with password for inter-process authentication
-mongos_keyfile_content: "{{ mongodb_keyfile_content }}"  # Please generate this file on production environment with command 'openssl rand -base64 756'
+```yaml
+mongodb_login_database: admin
+mongodb_root_admin_name: mongoroot
+mongodb_root_admin_password: ""                   # REQUIRED — set in vault or encrypted vars
+mongodb_user_admin_name: mongoadm
+mongodb_user_admin_password: ""                   # REQUIRED
+mongodb_root_backup_name: mongobackup
+mongodb_root_backup_password: ""                  # REQUIRED
+mongodb_admin_update_password: false              # Set true to rotate admin passwords on every play
+mongodb_users_update_password: false              # Set true to rotate normal user passwords on every play
 
-# MMS Agent
-mongodb_mms_agent_pkg: https://cloud.mongodb.com/download/agent/monitoring/mongodb-mms-monitoring-agent_7.2.0.488-1_amd64.ubuntu1604.deb
-mongodb_mms_group_id: ""
-mongodb_mms_api_key: ""
-mongodb_mms_base_url: https://mms.mongodb.com
+mongodb_users: []
+# - name: myapp
+#   password: "secret"
+#   roles: readWrite
+#   database: myappdb
+#   state: present          # present|absent (default: present)
+#   update_password: false  # override global flag per user
 
-# Names and passwords for administrative users
-mongodb_user_admin_name: "mongoadm"
-mongodb_user_admin_password: ""
+mongodb_oplog_users: []
+# - name: oplog_reader
+#   password: "secret"
 
-mongodb_root_admin_name: "mongoroot"
-mongodb_root_admin_password: ""
+mongodb_custom_roles: []
+# - name: read-and-create-index
+#   state: present
+#   database: myappdb
+#   roles:
+#     - role: read
+#       db: myappdb
+#   privileges:
+#     - resource: {db: myappdb, collection: ""}
+#       actions: [createIndex]
+```
 
-mongodb_root_backup_name: "mongobackup"
-mongodb_root_backup_password: ""
+### mongodb-exporter
 
-mongodb_exporter_name: "mongodbexporter"
-mongodb_exporter_password: ""
+mongodb-exporter is pinned to v0.51.0 with SHA-256 checksums for both amd64 and arm64. Prevents silent drift to untested releases.
 
-mongodb_users: {} # Optional: If you want to add multiple regular users
-  # - name: ""
-  #   password: ""
-  #   roles: ""
-  #   database: "" # Optional: (Default: user name)
-  #   state: "" # Optional: present|absent (Default: present)
-  #   update_password: false # Optional: true|false (Default: false)
-
-mongodb_oplog_users: {} # Optional: If you want to add multiple oplog users
-  # - name: ""
-  #   password: ""
-  #   state: "" # Optional: present|absent (Default: present)
-  #   update_password: false # Optional: true|false (Default: false)
-
-mongodb_custom_roles: {} # Optional: If you want to create custom user roles
-  # - name: ""
-  #   state: "" # Optional: present|absent (Default: present)
-  #   roles: # Optional
-  #     - role: ""
-  #       db: ""
-  #   database: ""
-  #   privileges: # Optional
-  #     - resource:
-  #         db: ""
-  #         collection: ""
-  #       actions:
-  #         - ""
-
-# Custom config options
-mongodb_config: {}
-
-# MongoDB prometheus exporter
-mongodb_exporter_user: "mongodb-exporter"
-mongodb_exporter_group: "{{ mongodb_group if mongodb_main_group != mongos_host_group else mongos_group if mongodb_main_group == mongos_host_group else mongodb_exporter_user }}"
+```yaml
 mongodb_exporter_enabled: true
-mongodb_exporter_force_install: false
-mongodb_exporter_version: "0.37.0"
-mongodb_exporter_version_arbiter: "0.11.2"
-mongodb_exporter_link: "https://github.com/percona/mongodb_exporter/releases/download/v{{ mongodb_exporter_version }}/mongodb_exporter-{{ mongodb_exporter_version }}.{{ os }}-{{ bin_arch }}.tar.gz"
+mongodb_exporter_version: "0.51.0"               # Pinned; change with caution
+mongodb_exporter_user: "mongodb-exporter"
+mongodb_exporter_group: "{{ mongodb_group }}"
+mongodb_exporter_name: mongodbexporter
+mongodb_exporter_password: ""                     # REQUIRED if exporter_enabled: true
 mongodb_exporter_path: "/usr/local/bin/mongodb-exporter"
-mongodb_exporter_checksum_link: "https://github.com/percona/mongodb_exporter/releases/download/v{{ mongodb_exporter_version }}/mongodb_exporter_{{ mongodb_exporter_version }}_checksums.txt"
-mongodb_exporter_checksum_path: "{{ mongodb_exporter_temp_dir }}/mongodb_exporter_v{{ mongodb_exporter_version }}_SHA256SUMS"
 mongodb_exporter_temp_dir: "/tmp/mongodb_exporter"
+mongodb_exporter_sha256:
+  amd64: "01dfae78c737fb48761a715d779cade464a84cce7a2a70357ac4af469bade198"
+  arm64: "f2f023d2d632c3b9cdc873558f26a8940efc197c1b36bbf96da17416a60eead6"
 ```
 
-## Usage
+### Uninstall mode
 
-Add `mongodb` to your roles and set vars in your playbook file (see tests/group_vars).
-
-### Prepare system environment variables
-```
-export VAULT_ADDR=https://vault.example.com:8200
-export VAULT_TOKEN=your_deploy_token
-# For MacOs
-export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-```
-
-## Standalone
-
-### Example hosts file without replication
-```ini
-[mongo_standalone]
-www.host1.com 
-```
-
-### Example var file without replication with required variables
 ```yaml
-mongodb_version: "6.0"
-
-mongodb_net_tls_enabled: true # Optional: true|false (Default: false)
-mongodb_net_tls_config:
-  mode: "requireTLS"
-  certificateKeyFileContent: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:certificateKeyFileContent token={{ vault_token }} url={{ vault_url }}') }}"
-  CAFileContent: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:CAFileContent token={{ vault_token }} url={{ vault_url }}') }}"
-
-mongodb_user_admin_password: "mongoadm"
-mongodb_root_admin_password: "mongoroot"
-mongodb_root_backup_password: "mongobackup"
-mongodb_exporter_password: "mongodbexporter" # Required if variable mongodb_exporter_enabled is True
-
-mongodb_users: # Optional if you want to add multiple regular users
-  - name: admin
-    password: "admin_password"
-    roles: dbOwner
-    database: user_database
-  - name: user_rw
-    password: "user_rw_password"
-    roles: readWrite
-    database: user_database
-  - name: user_ro
-    password: "user_ro_password"
-    roles: read
-    database: user_database
+mongodb_uninstall_mode: remove    # remove: uninstall packages, keep data
+                                  # purge: uninstall packages AND delete mongodb_storage_dbPath
 ```
 
-## Replicaset
+Use `mongodb-uninstall` tag to trigger uninstall.
 
-### Example hosts file for replication
+### Misc
+
+```yaml
+mongodb_manage_service: true           # Whether the role starts/restarts the service
+mongodb_force_install: false           # Force reinstall (use for downgrades)
+mongos_force_install: false
+mongodb_package: mongodb-org           # Package name to install
+mongodb_package_state: present         # present|latest|absent
+mongodb_pymongo_pip_version: "4.6.0"   # PyMongo version for pip install
+mongodb_reconfigure: false             # Force reconfiguration even if not changed
+```
+
+### Custom config escape hatch
+
+```yaml
+mongodb_config: {}   # Extra mongod.conf options as a nested dict (passed through to config template)
+```
+
+Example:
+
+```yaml
+mongodb_config:
+  setParameter:
+    diagnosticDataCollectionEnabled: false
+```
+
+---
+
+## Usage Examples
+
+### Replicaset setup
 
 ```ini
+# hosts.ini
 [mongo_cluster]
-www.host1.com mongodb_master=True # Optional variable, because if it's not set, then the 1st host will be master by default
-www.host2.com
-www.host3.com
-www.host4.com
-www.host5.com mongodb_arbiter=True # Optional variable if you need arbiter
+db1.example.com mongodb_master=True   # optional; if unset, first host in group is elected primary
+db2.example.com
+db3.example.com
+db4.example.com
+db5.example.com mongodb_arbiter=True  # optional arbiter member
 ```
 
-### Example var file for replication
 ```yaml
-mongodb_version: "6.0"
-
-mongodb_net_tls_enabled: true # Optional: true|false (Default: false)
-mongodb_net_tls_config:
-  mode: "requireTLS"
-  certificateKeyFileContent: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:certificateKeyFileContent token={{ vault_token }} url={{ vault_url }}') }}"
-  CAFileContent: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:CAFileContent token={{ vault_token }} url={{ vault_url }}') }}"
-
-mongodb_root_admin_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_root_admin_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_user_admin_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_user_admin_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_root_backup_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_root_backup_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_exporter_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_exporter_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_keyfile_content: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_keyfile_content token={{ vault_token }} url={{ vault_url }}') }}"
-
-mongodb_users: # Optional if you want to add multiple regular users
-  - name: admin
-    password: "admin_password"
-    roles: dbOwner
-    database: user_database
-  - name: user_rw
-    password: "user_rw_password"
-    roles: readWrite
-    database: user_database
-  - name: user_ro
-    password: "user_ro_password"
-    roles: read
-    database: user_database
-    
-mongodb_oplog_users: # Optional if you want to add oplog user
-  - name: oplog
-    password: "oplog_password"
+# group_vars/mongo_cluster.yml
+mongodb_version: "8.0"
+mongodb_replication_replSetName: "rs01"
+mongodb_security_keyfile_content: "{{ lookup('env', 'MONGODB_KEYFILE') }}"
+mongodb_root_admin_password: "{{ lookup('env', 'MONGODB_ROOT_PW') }}"
+mongodb_user_admin_password: "{{ lookup('env', 'MONGODB_ADM_PW') }}"
+mongodb_root_backup_password: "{{ lookup('env', 'MONGODB_BKP_PW') }}"
+mongodb_exporter_password: "{{ lookup('env', 'MONGODB_EXP_PW') }}"
 ```
 
-## Sharding
+```yaml
+# playbook.yml
+- hosts: mongo_cluster
+  become: true
+  serial: 1
+  roles:
+    - role: maprangzth.mongodb
+```
 
-### Example hosts file for sharded cluster
+To add or remove replicaset members: update `hosts.ini`, ensure member count is odd, then run with `-e mongodb_replication_reconfigure=true`.
+
+### Sharded cluster
 
 ```ini
+# hosts.ini
 [mongocfg_servers]
-www.mongocfg-1.com
-www.mongocfg-2.com
-www.mongocfg-3.com
+cfgsrv1.example.com
+cfgsrv2.example.com
+cfgsrv3.example.com
 
 [mongos_servers]
-www.mongos-1.com
-www.mongos-2.com
-www.mongos-3.com
+router1.example.com
+router2.example.com
 
 [mongo_shard_01]
-www.mongoshard-1-1.com
-www.mongoshard-1-2.com
-www.mongoshard-1-3.com
+shard1a.example.com
+shard1b.example.com
+shard1c.example.com
 
 [mongo_shard_02]
-www.mongoshard-2-1.com
-www.mongoshard-2-2.com
-www.mongoshard-2-3.com
+shard2a.example.com
+shard2b.example.com
+shard2c.example.com
 
 [mongo_sharded_cluster:children]
 mongocfg_servers
@@ -521,164 +469,197 @@ mongo_shard_01
 mongo_shard_02
 ```
 
-### Example var file for sharded cluster
 ```yaml
-mongodb_version: "6.0"
+# group_vars/mongo_sharded_cluster.yml
+mongodb_version: "8.0"
+mongodb_security_keyfile_content: "{{ lookup('env', 'MONGODB_KEYFILE') }}"
+mongodb_root_admin_password: "{{ lookup('env', 'MONGODB_ROOT_PW') }}"
+mongodb_user_admin_password: "{{ lookup('env', 'MONGODB_ADM_PW') }}"
+mongodb_root_backup_password: "{{ lookup('env', 'MONGODB_BKP_PW') }}"
+mongodb_exporter_password: "{{ lookup('env', 'MONGODB_EXP_PW') }}"
 
-mongodb_net_tls_enabled: true # Optional: true|false (Default: false)
-mongodb_net_tls_config:
-  mode: "requireTLS"
-  certificateKeyFileContent: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:certificateKeyFileContent token={{ vault_token }} url={{ vault_url }}') }}"
-  CAFileContent: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:CAFileContent token={{ vault_token }} url={{ vault_url }}') }}"
-
-mongodb_sharded_databases: # List of databases to run command sh.enableSharding()
-  - user_database_1
-  - user_database_2
-
-mongodb_root_admin_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_root_admin_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_user_admin_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_user_admin_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_root_backup_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_root_backup_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_exporter_password: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_exporter_password token={{ vault_token }} url={{ vault_url }}') }}"
-mongodb_keyfile_content: "{{ lookup('hashi_vault', 'secret=services/test-namespace/prd/mongodb:mongodb_keyfile_content token={{ vault_token }} url={{ vault_url }}') }}"
-
-mongodb_users: # Optional if you want to add multiple regular users
-  - name: admin
-    password: "admin_password"
-    roles: readWriteAnyDatabase
-    database: admin
-  - name: user_rw_1
-    password: "user_rw_password"
-    roles: readWrite
-    database: user_database_1
-  - name: user_ro_1
-    password: "user_ro_password"
-    roles: read
-    database: user_database_1
-  - name: user_rw_2
-    password: "user_rw_password"
-    roles: readWrite
-    database: user_database_2
-  - name: user_ro_2
-    password: "user_ro_password"
-    roles: read
-    database: user_database_2
-    
-mongodb_oplog_users: # Optional if you want to add oplog user
-  - name: oplog
-    password: "oplog_password"
+# Enable sharding for specific databases
+mongodb_sharded_databases:
+  - app_database
+  - analytics_database
 ```
 
-## Other examples
+### TLS configuration
 
-### Adding and deleting members in the replicaset
+Cert files must be present on targets before the role runs (use a pre-task or a cert-management role).
 
-To add or delete members in the replicaset:
-
-1) Add new or remove unwanted members from the hosts file
-2) Make sure the number of members is odd
-3) Run playbook with extra-var `-e mongodb_replication_reconfigure=true`
-
-### Adding normal users to the worked production database with custom role
-
-To add users, simply add a new user (e.g. `new_user_with_custom_role`) to your var file and run the playbook with the `mongodb-add-users` tag. It's safe even in production.
 ```yaml
-mongodb_users: # Optional if you want to add multiple regular users
-  - name: admin
-    password: "admin_password"
-    roles: dbOwner
-    database: user_database
-  - name: user_rw
-    password: "user_rw_password"
-    roles: readWrite
-    database: user_database
-  - name: user_ro
-    password: "user_ro_password"
-    roles: read
-    database: user_database
-  - name: new_user_with_custom_role
-    password: "new_user_with_custom_role_password"
-    roles: read-and-create-index
-    database: user_database
+# group_vars/all.yml — replicaset with TLS
+mongodb_net_tls_enabled: true
+mongodb_net_tls_mode: "requireTLS"
+mongodb_net_tls_certificateKeyFile: "/etc/ssl/mongo/server.pem"
+mongodb_net_tls_CAFile: "/etc/ssl/mongo/ca.pem"
+# Inter-node cluster auth via separate cluster cert (recommended)
+mongodb_net_tls_clusterFile: "/etc/ssl/mongo/cluster.pem"
+mongodb_net_tls_clusterCAFile: "/etc/ssl/mongo/ca.pem"
+```
 
+```yaml
+# playbook.yml — deploy certs then apply role
+- hosts: mongo_cluster
+  become: true
+  serial: 1
+  pre_tasks:
+    - name: Deploy TLS certificates
+      ansible.builtin.copy:
+        src: "certs/{{ inventory_hostname }}.pem"
+        dest: "/etc/ssl/mongo/server.pem"
+        owner: mongod
+        mode: "0400"
+  roles:
+    - role: maprangzth.mongodb
+```
+
+### Custom roles and users
+
+```yaml
 mongodb_custom_roles:
   - name: read-and-create-index
     state: present
+    database: myappdb
     roles:
       - role: read
-        db: user_database
-    database: user_database
+        db: myappdb
     privileges:
       - resource:
-          db: user_database
+          db: myappdb
           collection: ""
         actions:
           - createIndex
-```
 
-### Deleting normal users from the worked production database
-
-To delete users, add key `state: absent` for a specific user (e.g. `user_to_delete`) to your var file and run the playbook with the `mongodb-add-users` tag. It's safe even in production.
-```yaml
-mongodb_users: # Optional if you want to add multiple regular users
-  - name: admin
-    password: "admin_password"
-    roles: dbOwner
-    database: user_database
-  - name: user_rw
-    password: "user_rw_password"
+mongodb_users:
+  - name: appuser
+    password: "app-password"
     roles: readWrite
-    database: user_database
-  - name: user_ro
-    password: "user_ro_password"
-    roles: read
-    database: user_database
-  - name: user_to_delete
-    database: user_database
-    state: absent # Optional: present|absent (Default: present)
-
-mongodb_oplog_users: # Optional if you want to add oplog user
-  - name: oplog
-    state: absent # Optional: present|absent (Default: present)
+    database: myappdb
+  - name: appuser_ro
+    password: "ro-password"
+    roles: read-and-create-index
+    database: myappdb
 ```
 
-### Updating passwords for admins and normal users
+Run with `--tags mongodb-add-users` to safely add users to an already-running production database.
 
-To update passwords for all admin users, set global variable `mongodb_admin_update_password: true`
+### Managing users at runtime
 
-To update passwords for all normal users, set global variable `mongodb_users_update_password: true`
+**Add users** (safe on running production database):
+```bash
+ansible-playbook playbook.yml -i hosts --tags mongodb-add-users
+```
 
-To selectively update normal user passwords, add key `update_password: true` for a specific user (e.g. `user_ro`) to your var file and run the playbook with the `mongodb-add-users` tag. It's safe even in production.
+**Delete a user** (set `state: absent`):
 ```yaml
-mongodb_users: # Optional if you want to add multiple regular users
-  - name: admin
-    password: "admin_password"
-    roles: dbOwner
-    database: user_database
-  - name: user_rw
-    password: "user_rw_password"
+mongodb_users:
+  - name: old_user
+    database: myappdb
+    state: absent
+```
+
+**Delete an oplog user:**
+```yaml
+mongodb_oplog_users:
+  - name: oplog_reader
+    state: absent
+```
+
+### Password updates
+
+Update all admin passwords on every play:
+```yaml
+mongodb_admin_update_password: true
+```
+
+Update a specific user's password only:
+```yaml
+mongodb_users:
+  - name: appuser
+    password: "new-password"
     roles: readWrite
-    database: user_database
-  - name: user_ro
-    password: "user_ro_new_password"
-    roles: read
-    database: user_database
-    update_password: true # Optional: true|false (Default: false)
-
-mongodb_oplog_users: # Optional if you want to add oplog user
-  - name: oplog
-    password: "oplog_new_password"
-    update_password: true # Optional: true|false (Default: false)
+    database: myappdb
+    update_password: true
 ```
 
-### Reset lost admin and user passwords
+### Reset lost admin passwords
 
-To reset lost admin and user passwords run the playbook like this:
-```
-ansible-playbook playbook.yml -i hosts -t "mongodb,mongodb-force-restart" -e '{mongodb_reconfigure: true, mongodb_security_authorization_enabled: false, mongodb_admin_update_password: true, mongodb_users_update_password: true, mongodb_exporter_force_install: true}'; ansible-playbook playbook.yml -i hosts -t "mongodb,mongodb-force-restart" -e '{mongodb_reconfigure: true}'
+If admin credentials are lost, run this two-step procedure:
+
+```bash
+# Step 1: disable auth, update passwords
+ansible-playbook playbook.yml -i hosts \
+  -t "mongodb,mongodb-force-restart" \
+  -e '{mongodb_reconfigure: true, mongodb_security_authorization_enabled: false, mongodb_admin_update_password: true, mongodb_users_update_password: true, mongodb_exporter_force_install: true}'
+
+# Step 2: re-enable auth
+ansible-playbook playbook.yml -i hosts \
+  -t "mongodb,mongodb-force-restart" \
+  -e '{mongodb_reconfigure: true}'
 ```
 
-**See worked example in tests/ directory**
+### Prometheus exporter
+
+The role installs and configures [percona/mongodb_exporter](https://github.com/percona/mongodb_exporter) v0.51.0 by default when `mongodb_exporter_enabled: true`.
+
+The exporter binary is verified against pinned SHA-256 checksums for both amd64 and arm64. To disable:
+
+```yaml
+mongodb_exporter_enabled: false
+```
+
+To uninstall the exporter only (without touching MongoDB):
+
+```bash
+ansible-playbook playbook.yml -i hosts --tags mongodb-uninstall-exporter
+```
+
+---
+
+## Tags
+
+| Tag | Description |
+|-----|-------------|
+| `mongodb` | All mongod tasks (main entry point) |
+| `mongodb-install` | Install MongoDB packages only |
+| `mongodb-configure` | Configure mongod (mongod.conf, systemd, logrotate) |
+| `mongodb-logrotate` | Configure logrotate only |
+| `mongodb-replicaset` | Initialize or reconfigure replicaset |
+| `mongodb-create-admin-users` | Create initial admin users |
+| `mongodb-create-oplog-users` | Create oplog users |
+| `mongodb-add-users` | Add/update/delete normal users (safe on running production) |
+| `mongodb-commands` | Run additional ad-hoc MongoDB commands |
+| `mongodb-force-restart` | Restart MongoDB service (default is start-only) |
+| `mongodb-exporter` | Install/configure mongodb-exporter |
+| `mongodb-uninstall` | Uninstall MongoDB + exporter (keeps data; see `mongodb_uninstall_mode` for purge) |
+| `mongodb-uninstall-exporter` | Uninstall mongodb-exporter only |
+| `mongodb-dbdelete` | Delete MongoDB data directory (destructive) |
+| `mongos` | All mongos tasks |
+| `mongos-install` | Install mongos packages only |
+| `mongos-configure` | Configure mongos |
+| `mongos-logrotate` | Configure mongos logrotate |
+| `mongos-sharding` | Configure shards and sharded databases |
+| `mongos-force-restart` | Restart mongos service |
+| `mongos-uninstall` | Uninstall mongos |
+
+---
 
 ## License
 
 MIT
+
+---
+
+## Changelog
+
+See [`CHANGELOG.md`](CHANGELOG.md) for release history.
+
+## Migration from v1.x
+
+See [`docs/MIGRATION-v2.md`](docs/MIGRATION-v2.md) for the complete v1 → v2 migration guide.
+
+## Support Matrix
+
+See [`docs/SUPPORT-MATRIX.md`](docs/SUPPORT-MATRIX.md) for the MongoDB × OS × architecture support matrix.

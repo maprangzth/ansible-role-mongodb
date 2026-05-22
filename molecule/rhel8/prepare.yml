@@ -1,0 +1,14 @@
+---
+- name: Prepare nodes
+  hosts: all
+  become: true
+  tasks:
+    - name: Install python3.9 + base packages (RHEL 8 default python is 3.6, incompatible with pymongo 4.6+)
+      ansible.builtin.dnf:
+        name:
+          - python3.9
+          - python3.9-pip
+          - gnupg2
+          - curl
+          - ca-certificates
+        state: present

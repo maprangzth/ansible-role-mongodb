@@ -6,3 +6,5 @@ skip_list:
   - risky-file-permissions
   - command-instead-of-shell
   - experimental
+  - var-naming[pattern]   # camelCase vars mirror MongoDB config keys (intentional v2 design)
+  - yaml[line-length]     # long exporter download URL template is unavoidable

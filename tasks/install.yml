@@ -1,0 +1,6 @@
+---
+- name: Delegate package install to community.mongodb.mongodb_repository
+  ansible.builtin.include_role:
+    name: community.mongodb.mongodb_repository
+  vars:
+    mongodb_version: "{{ mongodb_version }}"

@@ -1,0 +1,66 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+
+platforms:
+  - &node
+    image: "ubuntu:24.04"
+    dockerfile: Dockerfile.j2
+    privileged: true
+    capabilities:
+      - SYS_ADMIN
+    cgroupns_mode: host
+    cgroup_parent: docker.slice
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    security_opts:
+      - seccomp=unconfined
+    docker_networks:
+      - name: mongo_test_net
+        ipam_config:
+          - subnet: 10.99.0.0/24
+    exposed_ports:
+      - 27017/tcp
+      - 27018/tcp
+      - 27019/tcp
+      - 9216/tcp
+    name: mongo01
+    hostname: mongo01
+    networks:
+      - name: mongo_test_net
+        ipv4_address: 10.99.0.10
+    groups:
+      - mongo_cluster
+  - <<: *node
+    name: mongo02
+    hostname: mongo02
+    networks:
+      - name: mongo_test_net
+        ipv4_address: 10.99.0.11
+  - <<: *node
+    name: mongo03
+    hostname: mongo03
+    networks:
+      - name: mongo_test_net
+        ipv4_address: 10.99.0.12
+
+provisioner:
+  name: ansible
+  log: true
+  config_options:
+    defaults:
+      display_skipped_hosts: false
+      timeout: 60
+  inventory:
+    links:
+      group_vars: ../../tests/group_vars/
+      hosts: ../../tests/hosts-cluster
+  playbooks:
+    prepare: prepare.yml
+
+verifier:
+  name: ansible

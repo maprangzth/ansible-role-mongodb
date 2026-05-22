@@ -1,0 +1,126 @@
+---
+# Bootstrap auth sequence per spec §5.4.
+# MUST be invoked only when mongodb_replication_replSetName is set and
+# the host is not a mongos (enforced by the when-guard in tasks/main.yml).
+#
+# Overview:
+#   Phase 1 — initial bring-up (no keyfile, no auth, localhost exception window):
+#     wait for port → rs.initiate → poll PRIMARY → create admin users
+#   Phase 2 — lock down with keyfile + auth (rolling):
+#     deploy keyfile → re-render mongod.conf with keyFile + auth →
+#     flush handlers (rolling restart via upstream role) → verify auth'd replicaset
+
+# ===========================================================================
+# Phase 1 — initial bring-up (localhost exception window)
+# ===========================================================================
+
+- name: Phase 1.4 — wait for mongod port ready
+  ansible.builtin.wait_for:
+    port: "{{ mongodb_net_port }}"
+    host: 127.0.0.1
+    timeout: 60
+
+- name: Phase 1.5 — initiate replicaset (per-replicaset, master only)
+  community.mongodb.mongodb_replicaset:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_database: admin
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    members: >-
+      {{ groups[mongodb_main_group]
+         | map('regex_replace', '$', ':' ~ mongodb_net_port)
+         | list }}
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+  register: rs_init
+
+- name: Phase 1.6 — poll mongodb_status until PRIMARY elected
+  community.mongodb.mongodb_status:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    poll: 10
+    interval: 6
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - rs_init.changed | default(false) or not (rs_init.skipped | default(false))
+
+- name: Phase 1.7a — create root admin user (localhost exception, no auth yet)
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_root_admin_name }}"
+    password: "{{ mongodb_root_admin_password }}"
+    roles:
+      - root
+    state: present
+    update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  no_log: true
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+
+- name: Phase 1.7b — create user admin
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_user_admin_name }}"
+    password: "{{ mongodb_user_admin_password }}"
+    roles:
+      - userAdminAnyDatabase
+      - clusterAdmin
+    state: present
+    update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  no_log: true
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+
+- name: Phase 1.7c — create backup user
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_root_backup_name }}"
+    password: "{{ mongodb_root_backup_password }}"
+    roles:
+      - backup
+      - restore
+    state: present
+    update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  no_log: true
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+
+# ===========================================================================
+# Phase 2 — lock down with keyfile + auth (rolling restart)
+# ===========================================================================
+
+- name: Phase 2.8 — deploy keyfile to all members
+  ansible.builtin.copy:
+    content: "{{ mongodb_security_keyfile_content }}"
+    dest: "{{ mongodb_security_keyfile_path }}"
+    owner: "{{ mongodb_user }}"
+    group: "{{ mongodb_group }}"
+    mode: "0400"
+  no_log: true
+  when: mongodb_security_keyfile_content | length > 0
+
+- name: Phase 2.9 — set marker so configure.yml re-renders mongod.conf with keyFile
+  ansible.builtin.set_fact:
+    mongodb_replicaset_bootstrapped: true
+
+- name: Phase 2.9b — re-include configure.yml to re-render with keyFile + auth
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Phase 2.10 — flush handlers to trigger rolling restart
+  ansible.builtin.meta: flush_handlers
+
+- name: Phase 2.11 — verify auth-enabled replicaset healthy (uses credentials)
+  community.mongodb.mongodb_status:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    poll: 10
+    interval: 6
+  no_log: true
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]

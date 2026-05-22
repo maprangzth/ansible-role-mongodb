@@ -1,0 +1,37 @@
+---
+- name: Install python3.9 on RHEL 8 (system python is 3.6 — incompatible with pymongo 4.6+)
+  ansible.builtin.dnf:
+    name: python3.9
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+    - ansible_distribution_major_version == "8"
+
+- name: Install python3-pip (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: python3-pip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Install python3-pip (RHEL)
+  ansible.builtin.dnf:
+    name: python3-pip
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install pymongo >=4.6 via pip (using configured interpreter)
+  ansible.builtin.pip:
+    name: "pymongo>=4.6,<5.0"
+    state: present
+    executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') | dirname }}/pip3"
+  when: >-
+    mongodb_replication_replSetName | length > 0
+    or (mongodb_replicaset_masters[mongodb_main_group] | default('')) == inventory_hostname
+
+- name: Install 'packaging' Python module (used by validate.yml pymongo version check)
+  ansible.builtin.pip:
+    name: packaging
+    state: present
+    executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') | dirname }}/pip3"

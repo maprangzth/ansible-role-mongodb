@@ -15,3 +15,5 @@ rules:
   truthy:
     allowed-values: ['true', 'false', 'yes', 'no']
     check-keys: false
+  colons:
+    max-spaces-after: -1  # allow alignment spacing in support matrix

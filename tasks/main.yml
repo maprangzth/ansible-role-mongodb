@@ -1,5 +1,7 @@
 ---
-- block:
+- name: MongoDB role main orchestration
+  tags: [always]
+  block:
     - name: Detect host's primary MongoDB group
       ansible.builtin.set_fact:
         mongodb_main_group: >-
@@ -77,4 +79,3 @@
       ansible.builtin.include_tasks: mongodb-exporter.yaml
       when: mongodb_exporter_enabled | bool
       tags: [exporter]
-  tags: [always]

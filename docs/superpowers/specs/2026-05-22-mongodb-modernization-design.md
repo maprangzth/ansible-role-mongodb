@@ -7,7 +7,8 @@
 
 **Revision history:**
 - 2026-05-22 v0.9 — initial draft
-- 2026-05-22 v1.0 — revised after council fan-out (GPT-5.5 + Gemini 3.1 Pro) flagged ~23 critical issues
+- 2026-05-22 v1.0 — revised after council fan-out #1 (GPT-5.5 + Gemini 3.1 Pro) flagged ~23 critical issues
+- 2026-05-23 v1.1 — revised after council fan-out #2 found ~16 remaining issues (bootstrap auth flow invalid, per-replicaset execution, RHEL 8 Python conflict, TLS validation gaps, master branch intent, etc.). Two Gemini "fatal" findings fact-checked against MongoDB repos + context7 and disproven (community.mongodb roles exist; MongoDB 6.0 has Debian 12 repo).
 
 ---
 
@@ -24,8 +25,9 @@ Modernize the role so it cleanly supports MongoDB 7.0 + 8.0 on currently-release
 | MongoDB versions dropped | 3.4, 3.6, 4.0, 4.2, 4.4, 5.0 |
 | Default `mongodb_version` | `"8.0"` |
 | Major-version upgrade safety | Preflight detects installed MongoDB major version; fails unless `mongodb_allow_major_upgrade: true` is set or installed major matches target |
-| OS — Primary support (PR-blocking CI) | Debian 12, Ubuntu 22.04, Ubuntu 24.04, RHEL/Rocky/Alma 8, RHEL/Rocky/Alma 9 |
-| OS — Nightly only | RHEL 8 (Python 3.9 path), arm64 smoke (one OS) |
+| OS — Primary support (PR-blocking CI) | Debian 12, Ubuntu 22.04, Ubuntu 24.04, RHEL/Rocky/Alma 9 |
+| OS — Nightly only | RHEL/Rocky/Alma 8 (Python 3.9 install path, slower), MongoDB 6.0 deprecated-tier smoke (one combo), arm64 smoke (one OS) |
+| OS support disclaimer | "RHEL family" tested via Rocky Linux as the RHEL-compatible proxy. AlmaLinux assumed compatible but not in CI. |
 | OS — Dropped | Amazon Linux (all), Debian ≤ 10, Ubuntu ≤ 20.04, RHEL ≤ 7 |
 | OS — Out of scope for v2.0 | Debian 11 (EOL Aug 2026), Debian 13, Ubuntu 26.04, RHEL 10 — add as MongoDB publishes official repos |
 | Architecture | amd64 + arm64 (detect at runtime, separate apt/rpm/exporter arch vars per §6.5) |
@@ -159,58 +161,93 @@ tasks/main.yml — host classification (UNCHANGED logic, slimmed code)
 
 ### 5.1 Module execution location (council added)
 
+**Per-replicaset execution model (council #2 fix):** A sharded inventory contains multiple replicaset groups (`mongocfg_servers`, `mongo_shard_1`, `mongo_shard_2`, ...). Global `run_once: true` would initialize only one. Instead, the role builds a `mongodb_replicaset_groups` fact (list of group names that need replicaset init) and loops over it, computing one master per group.
+
+```yaml
+- name: Build per-replicaset master map
+  ansible.builtin.set_fact:
+    mongodb_replicaset_masters: >-
+      {{
+        dict(
+          mongodb_replicaset_groups | zip(
+            mongodb_replicaset_groups | map('extract', groups) | map('first')
+          )
+        )
+      }}
+  run_once: true
+```
+
+Then per-replicaset tasks loop over `mongodb_replicaset_groups`, delegating to `mongodb_replicaset_masters[item]` for each. Not relying on play-level `run_once`.
+
 | Task | Execution host | Connection target | Rationale |
 |---|---|---|---|
 | `community.mongodb.mongodb_repository` (role) | each target node | n/a (apt/yum local) | repo per-host |
 | `community.mongodb.mongodb_mongod` (role) | each target node | n/a (writes local config) | per-host config |
-| `community.mongodb.mongodb_replicaset` (module) | `delegate_to: mongodb_master_host`, `run_once: true` | `login_host: mongodb_master_host` | single rs.initiate call |
-| `community.mongodb.mongodb_status` (module) | `delegate_to: mongodb_master_host` | `login_host: mongodb_master_host` | poll from one host |
-| `community.mongodb.mongodb_user` (module) | `delegate_to: mongodb_master_host`, `run_once: true` per user | `login_host: mongodb_master_host` | localhost-exception for first user, then auth |
-| `community.mongodb.mongodb_shard` (module) | `delegate_to: <first mongos>`, `run_once: true` | first mongos host | one sh.addShard per shard |
+| `community.mongodb.mongodb_replicaset` (module) | loop over `mongodb_replicaset_groups`, `delegate_to: mongodb_replicaset_masters[item]` | `login_host: 127.0.0.1` (on master) | one rs.initiate per replicaset (configsvr, each shard) |
+| `community.mongodb.mongodb_status` (module) | same as above | same as above | poll each replicaset independently |
+| `community.mongodb.mongodb_user` (module) | loop over replicaset groups, `delegate_to: mongodb_replicaset_masters[item]` per group | same | per-replicaset auth bootstrap |
+| `community.mongodb.mongodb_shard` (module) | `delegate_to: groups[mongos_host_group][0]`, `run_once: true` (single mongos coordinates shard add) | first mongos host | one sh.addShard per shard |
 | mongodb-exporter install | each target node | n/a | per-host binary install |
 
-All `community.mongodb` modules require `pymongo` on the executing host. If `delegate_to: mongodb_master_host`, then PyMongo must be on that host. If `delegate_to: localhost`, then on the Ansible controller.
+All `community.mongodb` modules require `pymongo` **on the executing host** (the `delegate_to` target). Since execution targets are MongoDB nodes themselves (not the controller), `pymongo >= 4.6` must be installed on every node by `tasks/install.requirements.yml`.
 
 ### 5.2 PyMongo placement decision
 
 `pymongo` and Python 3.9+ installed **on each target node** (not controller) via `tasks/install.requirements.yml`. Modules execute on target nodes by default with `delegate_to: mongodb_master_host` (which is itself a target node) for cluster-scope operations. This matches v1.x behavior and avoids controller dependency drift across operator environments.
 
-### 5.3 mongodb_master selection (deterministic)
+### 5.3 mongodb_master selection (deterministic, per-replicaset)
 
-`mongodb_master = first host in inventory group whose `mongodb_arbiter` is not defined and whose mongodb_main_group equals the inventory group`. Resolution order: alphabetical sort of `inventory_hostname` within the group. Documented in README so operators can predict master selection.
+For each replicaset group `g`, `mongodb_replicaset_masters[g]` is computed as: first host in `groups[g]` (alphabetically sorted by `inventory_hostname`) whose `mongodb_arbiter` is falsy (using truthiness check, not "not defined"):
 
-### 5.4 Bootstrap auth sequence (council added)
-
-```
-Phase 1 — pre-auth (localhost exception window):
-  1. Install MongoDB packages (no auth yet)
-  2. Render mongod.conf with security.keyFile set BUT security.authorization NOT enabled yet
-  3. Deploy keyfile to all members (mode 0400, owner per OS)
-  4. Start mongod on all members
-  5. wait_for port 27017 on localhost
-  6. On master: rs.initiate() — replicaset forms without auth
-  7. On master: wait for PRIMARY election (mongodb_status poll)
-
-Phase 2 — auth enable (transition):
-  8. On master via localhost: create root admin user (uses localhost exception — last chance)
-  9. On master via localhost: create user admin
- 10. Re-render mongod.conf with security.authorization = "enabled"
- 11. Rolling restart mongod (serial:1) — masters elected anew, but auth now required
-
-Phase 3 — post-auth:
- 12. Create backup user, exporter user, custom users — all auth'd via root admin
- 13. Run additional_commands (no_log) — auth'd
- 14. Install mongodb-exporter — auth'd connection to local mongod
+```jinja
+{{ groups[g] | sort | reject('match', '^$')
+   | rejectattr_via_hostvars('mongodb_arbiter', 'eq', True)
+   | first }}
 ```
 
-Failure recovery: if Phase 2 step 8 fails, role aborts before authorization is enabled — operator can debug without lockout. If step 11 fails mid-restart, replicaset may be split-brained — operator runs `mongodb_replication_reconfigure: true` to recover.
+Equivalent pseudocode: `first(sorted(g) where not bool(hostvars[host].mongodb_arbiter | default(false)))`.
 
-### 5.5 Rolling restart contract (council added)
+The truthiness check correctly handles `mongodb_arbiter: false` (which v1.x's "not defined" check incorrectly excluded). Documented in README so operators can predict master selection per replicaset.
 
-- Default playbook usage: operator should use `serial: 1` (or `serial: "33%"`) at the playbook level when this role is applied to multi-node groups. README will document this.
-- Role itself does NOT enforce `serial` — that's a playbook concern.
+### 5.4 Bootstrap auth sequence (council #1 — rewrite)
+
+**MongoDB constraint:** Setting `security.keyFile` in `mongod.conf` automatically enables `security.authorization`. The two cannot be decoupled (verified against MongoDB 6.0/7.0/8.0 docs). Prior 3-phase plan with "keyfile set but auth disabled" was invalid. Replaced with this 2-phase sequence:
+
+```
+Phase 1 — initial bring-up (no keyfile, no auth, localhost exception window):
+  1. Install MongoDB packages on all members
+  2. Render mongod.conf WITHOUT security.keyFile and WITHOUT security.authorization
+     (replication.replSetName IS set so members can form a replicaset)
+  3. Start mongod on all members
+  4. wait_for port 27017 on each member
+  5. Per replicaset group, on its master (delegate_to mongodb_replicaset_masters[g]):
+       community.mongodb.mongodb_replicaset → rs.initiate({...})
+  6. Per replicaset group, on its master: poll mongodb_status until PRIMARY elected
+  7. Per replicaset group, on its master via 127.0.0.1 localhost exception:
+       create root admin user (community.mongodb.mongodb_user, no_log: true)
+       create user admin
+       create backup user, exporter user, mongodb_users[]
+
+Phase 2 — lock down with keyfile + auth (rolling):
+  8. Deploy keyfile to all members (content from mongodb_security_keyfile_content var, mode 0400, owner per OS)
+  9. Re-render mongod.conf WITH security.keyFile AND security.authorization=enabled
+ 10. Rolling restart mongod (handler triggers; operator MUST use serial:1 per §5.5)
+ 11. Per replicaset: wait for PRIMARY re-election (mongodb_status with auth credentials)
+ 12. Run additional_commands (no_log) — using authenticated connection
+ 13. Install mongodb-exporter — using authenticated connection
+```
+
+**Recovery:** If Phase 1 step 7 fails (user create), role aborts before keyfile/auth deployed — operator debugs over open replicaset. If Phase 2 step 10 mid-restart fails, replicaset may have mixed auth state across members — operator sets `mongodb_replication_reconfigure: true` and re-runs. The role does not auto-recover from split state.
+
+**v1.x compatibility note:** v1.x flow deployed keyfile + auth from the start and relied on localhost exception under auth. That works for fresh installs but is fragile. v2.0 splits to two phases for clarity and reliability.
+
+### 5.5 Rolling restart contract (council #5 — strengthened)
+
+- Default playbook usage: operator MUST use `serial: 1` (or `serial: "33%"` for large clusters) at the playbook level when this role is applied to multi-node replicaset groups. README documents this with example playbook.
+- Role itself does NOT enforce `serial` directly — that's a playbook concern Ansible doesn't expose to roles.
+- **Best-effort preflight check** (validate.yml): if `groups[mongodb_main_group] | length > 1` and `mongodb_allow_non_serial_apply | default(false)` is false, emit a `debug` warning recommending `serial:1`. Cannot detect actual `serial` setting from inside a role, so this is documentation/discoverability only.
 - Internal handlers (`restart_mongod`, `restart_mongos`) trigger only on actual config diff (template checksum change).
-- Escape hatch: `mongodb_reconfigure: true` forces re-render + restart even without diff.
+- Escape hatch: `mongodb_replication_reconfigure: true` forces re-render + restart even without diff. (Note: var name is `mongodb_replication_reconfigure`, not `mongodb_reconfigure` — earlier inconsistency in this spec resolved here.)
 - Hot-config changes (those that don't require restart, e.g., `setParameter` runtime adjustments) are not handled in v2.0 — out of scope.
 
 ## 6. File layout
@@ -371,14 +408,18 @@ Sourced from MongoDB official repository availability at https://repo.mongodb.or
 
 **Verification required during implementation:** run `curl -sI` against each repo URL combination and snapshot results into `docs/SUPPORT-MATRIX.md`. Re-verify before each release.
 
-### 6.5 Architecture variable mapping (council added)
+### 6.5 Architecture variable mapping (council #9 — fail closed)
 
 ```yaml
-# vars/main.yml
-mongodb_apt_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default('amd64') }}"
-mongodb_rpm_arch: "{{ {'x86_64': 'x86_64', 'aarch64': 'aarch64'}[ansible_architecture] | default('x86_64') }}"
-mongodb_exporter_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] | default('amd64') }}"
+# vars/main.yml — fail closed, no silent default
+mongodb_supported_architectures: ['x86_64', 'aarch64']
+
+mongodb_apt_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+mongodb_rpm_arch: "{{ {'x86_64': 'x86_64', 'aarch64': 'aarch64'}[ansible_architecture] }}"
+mongodb_exporter_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
 ```
+
+`validate.yml` asserts `ansible_architecture in mongodb_supported_architectures` BEFORE these vars are referenced. Unknown architectures fail loudly at preflight, not silently into wrong repo URLs.
 
 (`bin_arch` from v1.x removed — was conflated. Three separate vars now.)
 
@@ -402,22 +443,35 @@ mongodb_net_tls_disabledProtocols: ""          # TLS1_0,TLS1_1,... comma-list
 mongodb_net_tls_logVersions: ""                # TLS1_0,TLS1_1,... comma-list
 ```
 
-`validate.yml` preflight (when `mongodb_net_tls_enabled`):
+`validate.yml` preflight (when `mongodb_net_tls_enabled`) — council #7 tightened:
 
 ```yaml
-- name: TLS cert files exist on target before mongod start
-  stat: { path: "{{ item }}" }
+- name: TLS enabled but required paths empty
+  ansible.builtin.assert:
+    that:
+      - mongodb_net_tls_certificateKeyFile | length > 0
+      - mongodb_net_tls_CAFile | length > 0
+      - mongodb_net_tls_mode in ['allowTLS','preferTLS','requireTLS']
+    fail_msg: "mongodb_net_tls_enabled=true requires certificateKeyFile, CAFile, and a non-disabled mode."
+  when: mongodb_net_tls_enabled
+
+- name: TLS cert + key + optional files exist on target before mongod start
+  ansible.builtin.stat: { path: "{{ item }}" }
   register: tls_files
   failed_when: not tls_files.stat.exists
-  loop:
-    - "{{ mongodb_net_tls_certificateKeyFile }}"
-    - "{{ mongodb_net_tls_CAFile }}"
-  when:
-    - mongodb_net_tls_enabled
-    - item | length > 0
+  loop: "{{ tls_paths_to_check }}"
+  vars:
+    tls_paths_to_check: >-
+      {{
+        [mongodb_net_tls_certificateKeyFile, mongodb_net_tls_CAFile]
+        + ([mongodb_net_tls_CRLFile] if mongodb_net_tls_CRLFile | length > 0 else [])
+        + ([mongodb_net_tls_clusterFile] if mongodb_net_tls_clusterFile | length > 0 else [])
+        + ([mongodb_net_tls_clusterCAFile] if mongodb_net_tls_clusterCAFile | length > 0 else [])
+      }}
+  when: mongodb_net_tls_enabled
 ```
 
-File-mode + ownership for TLS keys: `0400` owned by `mongodb_user`. Enforced by template tasks.
+**File ownership model:** Operator places `.pem` files at the configured paths out-of-band (cert lifecycle is out of role scope per §3). The role enforces correct mode (`0400`) and ownership (`mongodb_user:mongodb_group`) on those files via `ansible.builtin.file:` tasks (NOT `template:` — operator owns content, role owns permissions). Council #7 contradiction resolved.
 
 ### 6.7 mongodb-exporter pin (council added)
 
@@ -460,7 +514,13 @@ install package → configure → bootstrap auth sequence (§5.4) → users → 
 ### 8.1 validate.yml gatekeeper
 
 ```yaml
-# Major-version upgrade safety (council #2)
+# Architecture preflight (council #9 — fail closed before arch vars consumed)
+- name: Assert supported CPU architecture
+  ansible.builtin.assert:
+    that: ansible_architecture in mongodb_supported_architectures
+    fail_msg: "Unsupported CPU architecture: {{ ansible_architecture }}. Allowed: {{ mongodb_supported_architectures }}"
+
+# Major-version upgrade safety (council #2 — robust parser per council #13)
 - name: Detect installed MongoDB major version
   ansible.builtin.command: mongod --version
   register: mongod_installed
@@ -468,11 +528,16 @@ install package → configure → bootstrap auth sequence (§5.4) → users → 
   failed_when: false
   check_mode: false
 
-- name: Parse installed major from output
+- name: Parse installed major (robust — handles missing/odd output)
   ansible.builtin.set_fact:
     mongodb_installed_major: >-
-      {{ (mongod_installed.stdout | regex_search('db version v(\d+\.\d+)', '\\1') | first) | default('') }}
-  when: mongod_installed.rc == 0
+      {{
+        (
+          (mongod_installed.stdout | default('') | regex_search('db version v(\d+\.\d+)', '\\1') | default([]))
+          + ['']
+        ) | first
+      }}
+  when: mongod_installed.rc | default(1) == 0
 
 - name: Block accidental major-version upgrade
   ansible.builtin.fail:
@@ -534,30 +599,53 @@ install package → configure → bootstrap auth sequence (§5.4) → users → 
       {{ ansible_distribution }} {{ ansible_distribution_major_version }} ({{ ansible_architecture }}).
       See docs/SUPPORT-MATRIX.md.
 
-# PyMongo version (council #15 fragile parser fix)
-- name: Assert pymongo >= 4.6
+# PyMongo version (uses ansible_python_interpreter, not bare python3)
+- name: Assert pymongo >= 4.6 using configured interpreter
   ansible.builtin.command: >
-    python3 -c "from packaging.version import Version; import pymongo; assert Version(pymongo.__version__) >= Version('4.6')"
+    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c
+    "from packaging.version import Version; import pymongo; assert Version(pymongo.__version__) >= Version('4.6')"
   changed_when: false
-  when: inventory_hostname == mongodb_master_host
+  # Run only on hosts that will execute community.mongodb modules (replicaset masters)
+  when: inventory_hostname in (mongodb_replicaset_masters | default({}) | dict2items | map(attribute='value') | list)
 
-# x86-64-v2 microarchitecture (council #17 — replaces simple AVX check)
-- name: Check x86-64-v2 microarchitecture (x86_64 only)
-  ansible.builtin.command: /lib64/ld-linux-x86-64.so.2 --help
+# x86-64-v2 microarchitecture (council #8 — fail closed + cross-platform path)
+- name: Locate ld.so cross-platform
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /lib64/ld-linux-x86-64.so.2                       # RHEL/Rocky/Alma
+    - /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2        # Debian/Ubuntu
+  register: ldso_probe
+  when: ansible_architecture == "x86_64" and mongodb_major_version in ['7.0', '8.0']
+
+- name: Set ld.so path
+  ansible.builtin.set_fact:
+    ldso_path: "{{ (ldso_probe.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list + [''])[0] }}"
+  when: ansible_architecture == "x86_64" and mongodb_major_version in ['7.0', '8.0']
+
+- name: Check x86-64-v2 microarchitecture
+  ansible.builtin.command: "{{ ldso_path }} --help"
   register: ld_help
   changed_when: false
   failed_when: false
-  when: ansible_architecture == "x86_64" and mongodb_major_version in ['7.0', '8.0']
-
-- name: Assert x86-64-v2 supported (MongoDB 7.0+ on x86_64)
-  ansible.builtin.assert:
-    that: "'x86-64-v2 (supported, searched)' in ld_help.stdout"
-    fail_msg: "MongoDB {{ mongodb_major_version }} requires x86-64-v2 microarchitecture. Host CPU does not support."
   when:
     - ansible_architecture == "x86_64"
     - mongodb_major_version in ['7.0', '8.0']
-    - ld_help is defined
-    - ld_help.rc == 0
+    - ldso_path | length > 0
+
+- name: Assert x86-64-v2 supported (MongoDB 7.0+ on x86_64) — fail closed
+  ansible.builtin.assert:
+    that:
+      - ldso_path | length > 0
+      - ld_help.rc | default(1) == 0
+      - "'x86-64-v2 (supported' in (ld_help.stdout | default(''))"
+    fail_msg: |
+      MongoDB {{ mongodb_major_version }} requires x86-64-v2 microarchitecture.
+      Either: CPU does not support it, ld.so could not be located, or ld.so output format
+      changed (path={{ ldso_path | default('not found') }}). Fix infra or run on x86-64-v2 CPU.
+  when:
+    - ansible_architecture == "x86_64"
+    - mongodb_major_version in ['7.0', '8.0']
 
 # FCV auto-bump prevention (council removed undefined vars)
 - name: Confirm role does not auto-set FCV
@@ -611,7 +699,7 @@ Every task touching passwords, keyfile content, TLS private keys: `no_log: true`
 
 ## 9. Testing
 
-### 9.1 Test matrix (8 scenarios, council reconciled §6/§9)
+### 9.1 Test matrix (8 scenarios — authoritative, council #11 cleanup)
 
 | Scenario dir | OS | MongoDB | Trigger |
 |---|---|---|---|
@@ -620,15 +708,9 @@ Every task touching passwords, keyfile content, TLS private keys: `no_log: true`
 | `molecule/ubuntu2204/` | Ubuntu 22.04 (jammy) | 8.0 | PR-blocking |
 | `molecule/ubuntu2404/` | Ubuntu 24.04 (noble) | 8.0 | PR-blocking |
 | `molecule/ubuntu2404-mongo70/` | Ubuntu 24.04 | 7.0 | PR-blocking (version sweep) |
-| `molecule/ubuntu2404-mongo60/` | Ubuntu 24.04 | 6.0 | Nightly only (deprecated tier; `mongodb_allow_eol_version: true` set in converge) |
-| `molecule/rhel8/` | Rocky 8 | 8.0 | Nightly only (Python 3.9 path) |
-| `molecule/arm64-debian12/` | Debian 12 arm64 | 8.0 | Nightly only (buildx or self-hosted) |
-
-Wait — Ubuntu 24.04 + MongoDB 6.0 conflicts with §6.4 support matrix (6.0 has no Ubuntu 24.04 official repo). Resolution: change the deprecated-tier smoke scenario to `molecule/debian12-mongo60/` since MongoDB 6.0 has Debian 12 repo. Updated:
-
-| Scenario dir | OS | MongoDB | Trigger |
-|---|---|---|---|
-| `molecule/debian12-mongo60/` | Debian 12 | 6.0 | Nightly (deprecated tier, opt-in flag) |
+| `molecule/debian12-mongo60/` | Debian 12 | 6.0 | Nightly only (deprecated tier, `mongodb_allow_eol_version: true` set in converge; valid combo per §6.4) |
+| `molecule/rhel8/` | Rocky 8 | 8.0 | Nightly only (Python 3.9 install path) |
+| `molecule/arm64-debian12/` | Debian 12 arm64 | 8.0 | Nightly only (buildx or self-hosted runner) |
 
 ### 9.2 Per-scenario molecule layout
 
@@ -683,11 +765,16 @@ Privileged molecule scenarios (default) attempt THP disable. Unprivileged varian
 - assert:
     that: "'db version v' + mongodb_major_version in ver.stdout"
 
-- name: replicaset healthy
+- name: replicaset healthy (auth-aware, council #14)
   community.mongodb.mongodb_status:
     replica_set: rs01
     poll: 6
     interval: 5
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: admin
+    login_host: 127.0.0.1
+  no_log: true
   register: rs
 - assert: { that: "rs.replicaset is mapping" }
 
@@ -784,7 +871,15 @@ jobs:
       fail-fast: false
       matrix:
         scenario: [debian12-mongo60, rhel8, arm64-debian12]
-    steps: [ ... same setup ... ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Setup QEMU (for arm64 scenario)
+        if: matrix.scenario == 'arm64-debian12'
+        uses: docker/setup-qemu-action@v3
+      - run: pip install ansible-core molecule molecule-plugins[docker] docker pymongo
+      - run: ansible-galaxy collection install -r requirements.yml
       - run: molecule test -s ${{ matrix.scenario }}
 ```
 
@@ -817,7 +912,7 @@ Users upgrading from v1.x must:
 8. If using MMS agent: deploy MMS separately (out of role scope) or move to MongoDB Atlas
 9. If using `mongodb_cloud_*` free monitoring: feature deprecated upstream; no v2.0 replacement
 10. If on Debian 11 or Ubuntu 20.04: pin to v1.x branch or upgrade OS first
-11. If on RHEL 8 with system Python 3.6: install python3.9 package and set `ansible_python_interpreter: /usr/libexec/platform-python` or `/usr/bin/python3.9` — required for PyMongo 4.6+
+11. If on RHEL 8: install `python3.9` package via `dnf install python3.9` and set `ansible_python_interpreter: /usr/bin/python3.9` in inventory `group_vars/`. **Do not use `/usr/libexec/platform-python`** — it is Python 3.6 and incompatible with PyMongo 4.6+. The role's `install.requirements` task on RHEL 8 will install python3.9, but operators must set `ansible_python_interpreter` themselves for Ansible to find it. README provides example.
 
 ### 10.1 Galaxy / installation path (council #18)
 
@@ -829,16 +924,17 @@ Users upgrading from v1.x must:
 
 ```
 maprangzth/ansible-role-mongodb
-├── main           ← default branch (was `master`, renamed via GitHub UI)
-├── master         ← legacy pointer (kept for 1 release after v2.0.0 GA, then deleted; mirrors main)
-├── v1.x           ← cut from commit 6276c10 (v1.6.5), security backports only
+├── main           ← default branch (was `master`, renamed via GitHub UI). Tracks v2.x.
+├── master         ← legacy pointer. Points to v1.x HEAD (NOT main). Kept for 1 release after v2.0.0 GA.
+├── v1.x           ← cut from commit 6276c10 (v1.6.5), security backports only. `master` mirrors this.
 └── spike/community-mongodb-eval  ← short-lived B-spike branch
 ```
 
-**Branch rename communication (council #19):**
-- For 1 release after v2.0.0 GA, keep `master` as a pointer that mirrors `main` (push-only sync) so existing `git+https://...` installs targeting `master` keep resolving.
-- README header announces rename + timeline for `master` removal (v2.1.0 = `master` deleted).
-- GitHub Settings auto-redirects `master` refs to `main` for 90 days after rename — relied upon for user transition.
+**Branch rename strategy (council #18 — corrected):**
+- After GitHub rename `master` → `main`, immediately re-create `master` as a pointer to `v1.x` HEAD (NOT to `main`). Existing `git+https://...` installs targeting `master` will continue resolving to v1.x, protecting v1 users from accidental v2 upgrade.
+- README header announces: "`master` branch is now v1.x maintenance. New work lives on `main`. Pin your installs to a tag (e.g. `v2.0.0`) instead of a branch."
+- After v2.1.0 release: delete `master` branch entirely. By that point, GitHub's 90-day auto-redirect window has closed and users have had time to migrate to tag-pinned installs.
+- This means `git+https://github.com/maprangzth/ansible-role-mongodb,master` resolves to v1.x for ~1 release, then errors. Documented explicitly in CHANGELOG and README.
 
 **Implementation order:**
 
@@ -883,6 +979,7 @@ v2.x sub-project 2 = sharding modernization:
 |---|---|
 | RHEL 8 Python 3.9 install + `ansible_python_interpreter` documentation + molecule rhel8 scenario | Council #6 — system Python 3.6 blocks PyMongo 4.6 |
 | `library/mongodb_status_edited.py` PyMongo 4.6+ audit | Required for Hybrid path; required for Approach B if spike doesn't replace it |
+| OS-specific user/group/service mapping survives despite vars/*.yml deletion in Approach B | Keep `mongodb_user`/`mongodb_group` derivation in `defaults/main.yml` using `ansible_os_family` ternary (same as v1.x). community.mongodb.mongodb_mongod role inherits these vars when passed. Verify in spike. |
 | Verify `community.mongodb` collection roles exist with assumed names + capabilities | Pre-spike step §4 |
 | Snapshot MongoDB × OS × arch repo availability into `docs/SUPPORT-MATRIX.md` | Reproducibility, council #14 |
 | Audit complete removed-var list from v1.x defaults/vars/README/tests | §6.3 — clean break enforcement must catch every var |

@@ -1,277 +1,78 @@
 ---
+# Phase 3 — additional users (after Phase 1+2 in replicaset.yml; runs auth'd)
 
-- name: Create Root User '{{ mongodb_root_admin_name }}' in the {{ 'Replicaset' if mongodb_replication_enabled else 'Standalone' }} if Not Exists or 'mongodb_admin_update_password' is True
-  any_errors_fatal: true
-  delegate_to: "{{ (hostvars|dictsort|selectattr('1.mongodb_main_group', 'defined')|selectattr('1.mongodb_main_group', 'equalto', mongodb_main_group)|selectattr('1.mongodb_primary_host', 'defined')|map(attribute='1.mongodb_primary_host'))[0] | default(inventory_hostname) }}"
+- name: Create application users
   community.mongodb.mongodb_user:
-    name: "{{ item.name }}"
-    password: "{{ item.password }}"
-    update_password: "{{ (mongodb_admin_update_password or mongodb_root_admin_exist.failed) | ternary('always', 'on_create') }}"
-    state: present
-    roles: "{{ item.roles }}"
-    database: "{{ mongodb_login_database }}"
-    login_user: "{{ (not mongodb_root_admin_exist.failed) | ternary(mongodb_root_admin_name, omit) }}"
-    login_password: "{{ (not mongodb_root_admin_exist.failed) | ternary(mongodb_root_admin_password, omit) }}"
-    login_host: "127.0.0.1"
+    login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ (mongodb_replication_enabled and not mongodb_root_admin_exist.failed ) | ternary(mongodb_replication_replset, omit) }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  with_items:
-    - name: "{{ mongodb_root_admin_name }}"
-      password: "{{ mongodb_root_admin_password }}"
-      roles: "root"
-  when: mongodb_admin_update_password or mongodb_root_admin_exist.failed
-  tags: [mongodb, mongodb-create-admin-users]
-
-- name: Ensure that Root User '{{ mongodb_root_admin_name }}' Was Created in the Replicaset if Not Exists or 'mongodb_admin_update_password' is True
-  mongodb_status_edited: # Module allows validate: ['primary', 'reconfigure']
     login_user: "{{ mongodb_root_admin_name }}"
     login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
     login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_replset }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-    validate: "primary"
-  register: mongodb_root_admin_exist_replicaset
-  when:
-    - mongodb_replication_enabled
-    - mongodb_master is defined
-    - mongodb_master
-    - mongodb_admin_update_password or mongodb_root_admin_exist.failed
-  tags: [mongodb, mongodb-create-admin-users, mongodb-add-users, mongodb-create-oplog-users]
-
-- name: Ensure that Root User '{{ mongodb_root_admin_name }}' Was Created in the Standalone if Not Exists or 'mongodb_admin_update_password' is True
-  community.mongodb.mongodb_info:
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  register: mongodb_root_admin_exist_standalone
-  changed_when: false
-  when:
-    - not mongodb_replication_enabled
-    - mongodb_admin_update_password or mongodb_root_admin_exist.failed
-  tags: [mongodb, mongodb-create-admin-users, mongodb-add-users, mongodb-create-oplog-users]
-
-- name: Set Results of Root User '{{ mongodb_root_admin_name }}' Existence Check if Not Exists or 'mongodb_admin_update_password' is True
-  set_fact: 
-    mongodb_root_admin_exist: "{{ mongodb_root_admin_exist_replicaset | default({}) | combine(mongodb_root_admin_exist_standalone | default({}))  }}"
-  when: mongodb_admin_update_password or mongodb_root_admin_exist.failed
-  tags: [mongodb, mongodb-create-admin-users, mongodb-add-users, mongodb-create-oplog-users]
-
-- name: Create Custom Roles
-  community.mongodb.mongodb_role:
-    name: "{{ item.name }}"
-    state: "{{ item.state | default('present') }}"
-    roles: "{{ item.roles | default(omit) }}"
-    database: "{{ item.database }}"
-    privileges: "{{ item.privileges | default(omit) }}"
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_enabled | ternary(mongodb_replication_replset, omit) }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  with_items:
-    - "{{ mongodb_custom_backup_role if mongodb_major_version is version('6.0', '>=') else '' }}"
-    - "{{ (mongodb_custom_roles is defined and mongodb_custom_roles | length > 0)  | ternary(mongodb_custom_roles, {}) }}"
-  when: 
-    - item is defined
-    - item | length > 0
-  tags: [mongodb, mongodb-create-admin-users, mongodb-add-users]
-
-- name: Create Administrative Users {{ 'in the Replicaset' if mongodb_replication_enabled else '' }}
-  community.mongodb.mongodb_user:
-    name: "{{ item.name }}"
-    password: "{{ item.password }}"
-    update_password: "{{ mongodb_admin_update_password | ternary('always', 'on_create') }}"
-    state: present
-    roles: "{{ item.roles }}"
-    database: "{{ mongodb_login_database }}"
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_enabled | ternary(mongodb_replication_replset, omit) }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  with_items:
-    - name: "{{ mongodb_user_admin_name }}"
-      password: "{{ mongodb_user_admin_password }}"
-      roles: "userAdminAnyDatabase"
-    - name: "{{ mongodb_root_backup_name }}"
-      password: "{{ mongodb_root_backup_password }}"
-      roles: "{{ 'clusterMonitor,' + 'backupCustom' if mongodb_major_version is version('6.0', '>=') else 'backup' }}"
-  tags: [mongodb, mongodb-create-admin-users]
-
-- name: Create Oplog User in the Replicaset
-  community.mongodb.mongodb_user:
-    name: "{{ item.name }}"
-    password: "{{ item.password | default(omit) }}"
-    update_password: "{{ (mongodb_admin_update_password or item.update_password | default(false)) | ternary('always', 'on_create') }}"
-    state: "{{ item.state | default('present') }}"
-    roles: [{ role: read, db: local }]
-    database: "{{ mongodb_login_database }}"
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_enabled | ternary(mongodb_replication_replset, omit) }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  with_items:
-    - "{{ mongodb_oplog_users }}"
-  when:
-    - mongodb_replication_enabled
-    - mongodb_master is defined
-    - mongodb_master
-    - mongodb_oplog_users is defined
-    - mongodb_oplog_users | length > 0
-  tags: [mongodb, mongodb-create-admin-users, mongodb-create-oplog-users]
-
-- name: Add Normal Users {{ 'in the Replicaset' if mongodb_replication_enabled else '' }}
-  community.mongodb.mongodb_user:
-    name: "{{ item.name }}"
-    password: "{{ item.password | default(omit) }}"
-    update_password: "{{ (mongodb_users_update_password or item.update_password | default(false)) | ternary('always', 'on_create') }}"
-    state: "{{ item.state | default('present') }}"
-    roles: "{{ item.roles | default(omit) }}"
     database: "{{ item.database | default(item.name) }}"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    roles: "{{ item.roles }}"
+    state: "{{ item.state | default('present') }}"
+    update_password: "{{ 'always' if (item.update_password | default(mongodb_users_update_password)) else 'on_create' }}"
+  no_log: true
+  loop: "{{ mongodb_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: mongodb_users | length > 0
+
+- name: Create oplog users
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
     login_user: "{{ mongodb_root_admin_name }}"
     login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
     login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_enabled | ternary(mongodb_replication_replset, omit) }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  with_items:
-    - "{{ _mongodb_users_check.results | json_query('[].item') }}"
-  when:
-    - mongodb_users is defined
-    - mongodb_users | length > 0
-    - (mongodb_sharding_enabled and mongodb_main_group == mongodb_config_host_group) or not mongodb_sharding_enabled
-  tags: [mongodb, mongodb-add-users]
+    database: "{{ mongodb_login_database }}"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    roles:
+      - db: "local"
+        role: "read"
+    state: "{{ item.state | default('present') }}"
+  no_log: true
+  loop: "{{ mongodb_oplog_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: mongodb_oplog_users | length > 0
+
+- name: Create custom roles
+  community.mongodb.mongodb_role:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    database: "{{ item.database }}"
+    name: "{{ item.name }}"
+    roles: "{{ item.roles | default([]) }}"
+    privileges: "{{ item.privileges | default([]) }}"
+    state: "{{ item.state | default('present') }}"
+  no_log: true
+  loop: "{{ mongodb_custom_roles }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: mongodb_custom_roles | length > 0
+
+- name: Create exporter user
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_exporter_name }}"
+    password: "{{ mongodb_exporter_password }}"
+    roles:
+      - db: "admin"
+        role: "clusterMonitor"
+      - db: "local"
+        role: "read"
+    state: present
+  no_log: true
+  when: mongodb_exporter_enabled | bool

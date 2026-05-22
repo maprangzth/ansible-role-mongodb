@@ -1,0 +1,43 @@
+---
+- name: Wait for mongos ready
+  ansible.builtin.wait_for:
+    port: "{{ mongos_net_port }}"
+    host: 127.0.0.1
+    timeout: 60
+
+- name: Discover shard groups (mongo_shard_<N>)
+  ansible.builtin.set_fact:
+    mongodb_shard_group_names: >-
+      {{ groups.keys()
+         | select('match', '^' ~ mongodb_sharded_host_group ~ '[0-9]+$')
+         | list | sort }}
+
+- name: Add each shard via community.mongodb.mongodb_shard
+  community.mongodb.mongodb_shard:
+    login_host: 127.0.0.1
+    login_port: "{{ mongos_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    shard: >-
+      rs{{ item | regex_replace('^' ~ mongodb_sharded_host_group, '') }}/{{
+        groups[item] | map('regex_replace', '$', ':' ~ mongodb_net_port) | join(',')
+      }}
+    state: "{{ mongodb_sharding_state }}"
+  no_log: true
+  loop: "{{ mongodb_shard_group_names }}"
+  delegate_to: "{{ groups[mongos_host_group][0] }}"
+  run_once: true
+
+- name: Enable sharding for declared databases
+  community.mongodb.mongodb_shell:
+    login_host: 127.0.0.1
+    login_port: "{{ mongos_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    eval: 'sh.enableSharding("{{ item }}")'
+  no_log: true
+  loop: "{{ mongodb_sharded_databases }}"
+  delegate_to: "{{ groups[mongos_host_group][0] }}"
+  run_once: true

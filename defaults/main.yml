@@ -106,10 +106,10 @@ mongodb_exporter_user: "mongodb-exporter"
 mongodb_exporter_group: "{{ mongodb_group }}"
 mongodb_exporter_name: mongodbexporter
 mongodb_exporter_password: ""
-mongodb_exporter_version: "0.42.0"
+mongodb_exporter_version: "0.51.0"
 mongodb_exporter_sha256:
-  amd64: ""
-  arm64: ""
+  amd64: "01dfae78c737fb48761a715d779cade464a84cce7a2a70357ac4af469bade198"
+  arm64: "f2f023d2d632c3b9cdc873558f26a8940efc197c1b36bbf96da17416a60eead6"
 mongodb_exporter_link: "https://github.com/percona/mongodb_exporter/releases/download/v{{ mongodb_exporter_version }}/mongodb_exporter-{{ mongodb_exporter_version }}.linux-{{ mongodb_exporter_arch }}.tar.gz"
 mongodb_exporter_path: "/usr/local/bin/mongodb-exporter"
 mongodb_exporter_temp_dir: "/tmp/mongodb_exporter"

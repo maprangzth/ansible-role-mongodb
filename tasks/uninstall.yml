@@ -1,0 +1,55 @@
+---
+- name: Stop mongod / mongos services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - mongod
+    - mongos
+  failed_when: false
+
+- name: Remove MongoDB packages (Debian)
+  ansible.builtin.apt:
+    name: "mongodb-org*"
+    state: absent
+    purge: "{{ mongodb_uninstall_mode == 'purge' }}"
+  when: ansible_os_family == "Debian"
+
+- name: Remove MongoDB packages (RHEL)
+  ansible.builtin.dnf:
+    name: "mongodb-org*"
+    state: absent
+  when: ansible_os_family == "RedHat"
+
+- name: Remove repo definitions (Debian)
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/mongodb-org-{{ mongodb_major_version }}.list"
+    state: absent
+  when: ansible_os_family == "Debian"
+
+- name: Remove repo definitions (RHEL)
+  ansible.builtin.file:
+    path: "/etc/yum.repos.d/mongodb-org-{{ mongodb_major_version }}.repo"
+    state: absent
+  when: ansible_os_family == "RedHat"
+
+- name: Purge data + logs (mongodb_uninstall_mode=purge only)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ mongodb_storage_dbPath }}"
+    - /var/log/mongodb
+    - "{{ mongodb_security_keyfile_path }}"
+  when: mongodb_uninstall_mode == 'purge'
+
+- name: Remove mongodb-exporter binary
+  ansible.builtin.file:
+    path: "{{ mongodb_exporter_path }}"
+    state: absent
+
+- name: Remove mongodb-exporter systemd unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/mongodb-exporter.service
+    state: absent

@@ -1,0 +1,15 @@
+FROM {{ item.image }}
+
+ENV container=docker
+RUN dnf install -y \
+    systemd systemd-sysv \
+    python3 python3-pip \
+    sudo curl gnupg2 \
+    && dnf clean all \
+    && rm -f /lib/systemd/system/multi-user.target.wants/* \
+            /etc/systemd/system/*.wants/* \
+            /lib/systemd/system/local-fs.target.wants/*
+
+VOLUME ["/sys/fs/cgroup", "/run", "/run/lock", "/tmp"]
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

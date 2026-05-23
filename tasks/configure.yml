@@ -22,6 +22,9 @@
 - name: Configure mongod (standalone / replicaset member / shard data node)
   ansible.builtin.include_role:
     name: community.mongodb.mongodb_mongod
+    apply:
+      no_log: true
+  no_log: true
   vars:
     # Network — upstream: bind_ip / bind_ip_all / mongod_port
     bind_ip: "{{ mongodb_net_bindIp }}"
@@ -85,6 +88,9 @@
 - name: Configure mongod as configsvr (config server replicaset)
   ansible.builtin.include_role:
     name: community.mongodb.mongodb_config
+    apply:
+      no_log: true
+  no_log: true
   vars:
     # Network — upstream: bind_ip / bind_ip_all
     bind_ip: "{{ mongodb_net_bindIp }}"
@@ -127,6 +133,9 @@
 - name: Configure mongos (query router)
   ansible.builtin.include_role:
     name: community.mongodb.mongodb_mongos
+    apply:
+      no_log: true
+  no_log: true
   vars:
     # Network — upstream: bind_ip / bind_ip_all
     # mongos uses its own net vars (mongos_net_bindIp / mongos_net_port)

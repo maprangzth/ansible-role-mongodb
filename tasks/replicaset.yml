@@ -20,16 +20,24 @@
     host: 127.0.0.1
     timeout: 60
 
+- name: Phase 1.4b — build rs member config (master gets priority 2 to win election)
+  ansible.builtin.set_fact:
+    _rs_member_config: >-
+      {{ _rs_member_config | default([])
+         + [{'host': item ~ ':' ~ mongodb_net_port,
+             'priority': 2 if item == mongodb_replicaset_masters[mongodb_main_group] else 1}] }}
+  loop: "{{ groups[mongodb_main_group] }}"
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+
 - name: Phase 1.5 — initiate replicaset (per-replicaset, master only)
   community.mongodb.mongodb_replicaset:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
     login_database: admin
     replica_set: "{{ mongodb_replication_replSetName }}"
-    members: >-
-      {{ groups[mongodb_main_group]
-         | map('regex_replace', '$', ':' ~ mongodb_net_port)
-         | list }}
+    members: "{{ _rs_member_config }}"
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))

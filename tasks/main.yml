@@ -18,15 +18,30 @@
       ansible.builtin.meta: end_host
       when: mongodb_main_group | length == 0
 
-    - name: Build per-replicaset master map (run_once)
+    - name: Build per-replicaset master map (run_once, excludes arbiters)
       ansible.builtin.set_fact:
         mongodb_replicaset_masters: >-
-          {{ dict(mongodb_replicaset_groups | zip(
-                mongodb_replicaset_groups
-                | map('extract', groups)
-                | map('sort')
-                | map('first')
-              )) }}
+          {{
+            dict(
+              mongodb_replicaset_groups
+              | zip(
+                  mongodb_replicaset_groups
+                  | map('extract', groups)
+                  | map('sort')
+                  | map('reject', 'in', _arbiter_hosts)
+                  | map('list')
+                  | map('first')
+                )
+            )
+          }}
+      vars:
+        _arbiter_hosts: >-
+          {{ groups['all']
+             | map('extract', hostvars)
+             | selectattr('mongodb_arbiter', 'defined')
+             | selectattr('mongodb_arbiter', 'eq', True)
+             | map(attribute='inventory_hostname')
+             | list }}
       run_once: true
       delegate_to: localhost
 

@@ -47,6 +47,21 @@
     - not (mongodb_replicaset_bootstrapped | default(false))
     - rs_init.changed | default(false) or not (rs_init.skipped | default(false))
 
+- name: Phase 1.7-debug — show rs.status before user create  # TEMP for CI debug
+  community.mongodb.mongodb_shell:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    eval: "JSON.stringify({myState: rs.status().myState, members: rs.status().members.map(m => m.stateStr)})"
+  register: _rs_dbg
+  failed_when: false
+  changed_when: false
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+
+- name: Phase 1.7-debug — print
+  ansible.builtin.debug:
+    var: _rs_dbg
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+
 - name: Phase 1.7a — create root admin user (localhost exception, no auth yet)
   community.mongodb.mongodb_user:
     login_host: 127.0.0.1
@@ -62,7 +77,7 @@
   retries: 12
   delay: 5
   until: _phase17_user is succeeded
-  no_log: true
+  no_log: false  # TEMP for CI debug
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))

@@ -5,6 +5,7 @@
   community.mongodb.mongodb_user:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
     login_user: "{{ mongodb_root_admin_name }}"
     login_password: "{{ mongodb_root_admin_password }}"
     login_database: "{{ mongodb_login_database }}"
@@ -24,6 +25,7 @@
   community.mongodb.mongodb_user:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
     login_user: "{{ mongodb_root_admin_name }}"
     login_password: "{{ mongodb_root_admin_password }}"
     login_database: "{{ mongodb_login_database }}"
@@ -44,6 +46,7 @@
   community.mongodb.mongodb_role:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
     login_user: "{{ mongodb_root_admin_name }}"
     login_password: "{{ mongodb_root_admin_password }}"
     login_database: "{{ mongodb_login_database }}"
@@ -62,6 +65,7 @@
   community.mongodb.mongodb_user:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
     login_user: "{{ mongodb_root_admin_name }}"
     login_password: "{{ mongodb_root_admin_password }}"
     login_database: "{{ mongodb_login_database }}"

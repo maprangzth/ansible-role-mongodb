@@ -124,6 +124,9 @@ mongos_force_install: false
 mongodb_package: mongodb-org
 mongodb_package_state: present
 mongodb_pymongo_pip_version: "4.6.0"
+# Service names (used by exporter unit + restart handlers)
+mongodb_daemon_name: mongod
+mongos_daemon_name: mongos
 mongodb_reconfigure: false
 mongodb_replication_replindexprefetch: all
 mongodb_storage_dirperdb: false

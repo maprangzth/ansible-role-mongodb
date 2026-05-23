@@ -20,7 +20,7 @@
 - name: Parse installed major version (robust)
   ansible.builtin.set_fact:
     mongodb_installed_major: >-
-      {{ ((mongod_installed.stdout | default('') | regex_search('db version v(\d+\.\d+)', '\\1') | default([])) + [''])
+      {{ (((mongod_installed.stdout | default('') | regex_search('db version v(\d+\.\d+)', '\1')) or []) + [''])
          | first }}
   when: mongod_installed.rc | default(1) == 0
 

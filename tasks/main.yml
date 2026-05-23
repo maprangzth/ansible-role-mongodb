@@ -1,6 +1,5 @@
 ---
 - name: MongoDB role main orchestration
-  tags: [always]
   block:
     - name: Detect host's primary MongoDB group
       ansible.builtin.set_fact:

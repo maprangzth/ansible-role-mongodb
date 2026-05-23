@@ -40,17 +40,22 @@
       {{ (mongodb_main_group | default(''))
          is search('^' + mongodb_sharded_host_group) }}
 
-    # Security / keyfile — upstream: openssl_keyfile_path / openssl_keyfile_content
-    # Keyfile is activated only after replicaset bootstrap (Phase 2, spec §5.4).
-    # Before bootstrap, pass an empty path so the upstream role skips keyfile tasks.
-    openssl_keyfile_path: >-
-      {{ mongodb_security_keyfile_path
-         if (mongodb_replicaset_bootstrapped | default(false)) | bool
-         else '' }}
-    openssl_keyfile_content: >-
-      {{ mongodb_security_keyfile_content
-         if (mongodb_replicaset_bootstrapped | default(false)) | bool
-         else '' }}
+    # Security / keyfile / authorization — upstream gates the keyfile copy task
+    # on `when: authorization == "enabled"`. So we use the `authorization` var
+    # as the single switch for spec §5.4's two-phase flow:
+    #   Phase 1 (mongodb_replicaset_bootstrapped = false): authorization=disabled
+    #     → upstream skips keyfile copy, no security.authorization in mongod.conf,
+    #       auth is OFF. rs.initiate runs unauth'd; first admin created via
+    #       localhost exception.
+    #   Phase 2 (after replicaset.yml sets the bootstrapped fact + redeploys
+    #     this include): authorization=enabled
+    #     → upstream copies keyfile to mode-0400 file, enables auth in mongod.conf,
+    #       restarts mongod. Replicaset members reauth with shared keyfile.
+    authorization: >-
+      {{ 'enabled' if (mongodb_replicaset_bootstrapped | default(false)) | bool
+         else 'disabled' }}
+    openssl_keyfile_path: "{{ mongodb_security_keyfile_path }}"
+    openssl_keyfile_content: "{{ mongodb_security_keyfile_content }}"
 
     # TLS — upstream: mongodb_use_tls (bool, mode hardcoded requireTLS)
     # NOTE: mongodb_net_tls_mode is NOT mappable — upstream always uses requireTLS
@@ -91,15 +96,13 @@
     # Replication — upstream: config_repl_set_name (NOT repl_set_name for this role)
     config_repl_set_name: "{{ mongodb_replication_replSetName }}"
 
-    # Security / keyfile — upstream: openssl_keyfile_path / openssl_keyfile_content
-    openssl_keyfile_path: >-
-      {{ mongodb_security_keyfile_path
-         if (mongodb_replicaset_bootstrapped | default(false)) | bool
-         else '' }}
-    openssl_keyfile_content: >-
-      {{ mongodb_security_keyfile_content
-         if (mongodb_replicaset_bootstrapped | default(false)) | bool
-         else '' }}
+    # Security / keyfile / authorization — same two-phase pattern as mongodb_mongod
+    # (upstream gates keyfile copy on authorization == "enabled").
+    authorization: >-
+      {{ 'enabled' if (mongodb_replicaset_bootstrapped | default(false)) | bool
+         else 'disabled' }}
+    openssl_keyfile_path: "{{ mongodb_security_keyfile_path }}"
+    openssl_keyfile_content: "{{ mongodb_security_keyfile_content }}"
 
     # TLS — same pattern as mongodb_mongod
     mongodb_use_tls: "{{ mongodb_net_tls_enabled | bool }}"

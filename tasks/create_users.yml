@@ -78,5 +78,6 @@
       - db: "local"
         role: "read"
     state: present
+    update_password: on_create
   no_log: true
   when: mongodb_exporter_enabled | bool

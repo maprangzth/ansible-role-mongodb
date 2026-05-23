@@ -8,21 +8,25 @@ mongodb_exporter_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_archi
 # === Support matrix (sourced from docs/SUPPORT-MATRIX.md probe 2026-05-23) ===
 # Reflects ACTUAL repo.mongodb.org availability, not aspirational.
 mongodb_support_matrix:
+  # NOTE: 2026-05-23 deep probe of binary-<arch>/Packages.gz revealed that
+  # Debian 12 (bookworm) has NO arm64 mongodb-org-server packages for any
+  # MongoDB version. Only client tools (mongosh, atlas-cli) are arm64.
+  # Ubuntu jammy/noble arm64 + RHEL aarch64 all have full server packages.
   "6.0":
-    Debian:    { "12": ["x86_64", "aarch64"] }
+    Debian:    { "12": ["x86_64"] }
     Ubuntu:    { "22.04": ["x86_64", "aarch64"] }
     RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
     Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
     AlmaLinux: { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
   "7.0":
-    Debian:    { "12": ["x86_64", "aarch64"] }
+    Debian:    { "12": ["x86_64"] }
     Ubuntu:    { "22.04": ["x86_64", "aarch64"] }
     # NOTE: MongoDB 7.0 has NO Ubuntu 24.04 (noble) repo per probe 2026-05-23.
     RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
     Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
     AlmaLinux: { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
   "8.0":
-    Debian:    { "12": ["x86_64", "aarch64"] }
+    Debian:    { "12": ["x86_64"] }
     Ubuntu:    { "22.04": ["x86_64", "aarch64"], "24.04": ["x86_64", "aarch64"] }
     RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
     Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }

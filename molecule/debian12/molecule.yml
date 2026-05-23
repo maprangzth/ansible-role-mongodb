@@ -55,10 +55,6 @@ provisioner:
     defaults:
       display_skipped_hosts: false
       timeout: 60
-  inventory:
-    links:
-      group_vars: ../../tests/group_vars/
-      hosts: ../../tests/hosts-cluster
   playbooks:
     prepare: prepare.yml
 

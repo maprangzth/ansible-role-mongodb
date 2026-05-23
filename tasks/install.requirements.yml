@@ -21,11 +21,18 @@
     state: present
   when: ansible_os_family == "RedHat"
 
+# PEP 668: Debian 12 + Ubuntu 24.04 + RHEL 9+ mark system Python as
+# "externally managed" — pip refuses system-wide install without explicit
+# override. Two choices: install via OS package manager (often stale) or
+# pass `--break-system-packages`. We choose the latter for version control —
+# pymongo 4.6+ isn't reliably packaged across distros. Documented in
+# docs/MIGRATION-v2.md.
 - name: Install pymongo >=4.6 via pip (using configured interpreter)
   ansible.builtin.pip:
     name: "pymongo>=4.6,<5.0"
     state: present
     executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') | dirname }}/pip3"
+    extra_args: --break-system-packages
   when: >-
     mongodb_replication_replSetName | length > 0
     or (mongodb_replicaset_masters[mongodb_main_group] | default('')) == inventory_hostname
@@ -35,3 +42,4 @@
     name: packaging
     state: present
     executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') | dirname }}/pip3"
+    extra_args: --break-system-packages

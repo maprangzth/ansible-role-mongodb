@@ -78,7 +78,7 @@
       - bin_arch
       # Dead code — MongoDB HTTP interface removed in 3.6
       - mongodb_net_http_enabled
-  when: lookup('vars', item, default=None) is not none
+  when: item in vars
 
 - name: Reject legacy SSL config dict (dict-variant guard)
   ansible.builtin.fail:
@@ -130,17 +130,27 @@
       See docs/SUPPORT-MATRIX.md for the full supported combinations.
 
 # === PyMongo version check ===
-- name: Assert pymongo >= 4.6 using configured Python interpreter
+# Note: pymongo is installed by install.requirements.yml AFTER validate.yml runs.
+# This check is a runtime guard — it skips silently when pymongo isn't yet installed
+# (first-run path), and asserts >=4.6 on subsequent runs (re-apply path).
+- name: Detect pymongo presence
+  ansible.builtin.command: >
+    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c "import pymongo"
+  register: pymongo_present
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in (groups[mongodb_replication_host_group] | default([]))
+
+- name: Assert pymongo >= 4.6 (when present)
   ansible.builtin.command: >
     {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c
     "from packaging.version import Version; import pymongo;
     assert Version(pymongo.__version__) >= Version('4.6'),
     'pymongo ' + pymongo.__version__ + ' < 4.6'"
   changed_when: false
-  failed_when: pymongo_check.rc != 0
-  register: pymongo_check
   when:
     - inventory_hostname in (groups[mongodb_replication_host_group] | default([]))
+    - pymongo_present.rc | default(1) == 0
 
 # === x86-64-v2 microarchitecture check (MongoDB 7.0+ on x86_64) ===
 - name: Locate ld.so cross-platform

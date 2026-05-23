@@ -59,8 +59,8 @@
     state: present
     update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
   register: _phase17_user
-  retries: 12
-  delay: 5
+  retries: 20
+  delay: 10
   until: _phase17_user is succeeded
   no_log: true
   when:
@@ -80,8 +80,8 @@
     state: present
     update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
   register: _phase17_user
-  retries: 12
-  delay: 5
+  retries: 20
+  delay: 10
   until: _phase17_user is succeeded
   no_log: true
   when:
@@ -101,8 +101,8 @@
     state: present
     update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
   register: _phase17_user
-  retries: 12
-  delay: 5
+  retries: 20
+  delay: 10
   until: _phase17_user is succeeded
   no_log: true
   when:
@@ -153,8 +153,8 @@
     poll: 10
     interval: 6
   register: _rs_verify
-  retries: 12
-  delay: 5
+  retries: 20
+  delay: 10
   until: _rs_verify is succeeded
   no_log: true
   when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]

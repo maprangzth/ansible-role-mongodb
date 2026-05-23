@@ -8,7 +8,7 @@ platforms:
   - &node
     image: "rockylinux:9"
     dockerfile: Dockerfile.j2
-    command: /lib/systemd/systemd
+    command: /usr/lib/systemd/systemd
     privileged: true
     capabilities:
       - SYS_ADMIN

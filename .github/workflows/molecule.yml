@@ -41,8 +41,7 @@ jobs:
           python-version: "3.12"
       - run: pip install ansible-core==2.15.* molecule "molecule-plugins[docker]" docker pymongo packaging
       - run: ansible-galaxy collection install -r requirements.yml
-      - name: Pre-build amd64 images (for scenarios using pre_build_image)
-        if: matrix.scenario == 'debian12'
+      - name: Pre-build amd64 images (idempotent — no-op if Dockerfile.amd64 absent)
         run: scripts/build-molecule-amd64-images.sh
       - run: molecule test -s ${{ matrix.scenario }}
         env:

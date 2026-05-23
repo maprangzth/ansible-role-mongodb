@@ -6,6 +6,7 @@
     mongodb_root_admin_name: mongoroot
     mongodb_root_admin_password: "ConvergePwd!8x"
     mongodb_user: mongod
+    ansible_python_interpreter: /usr/bin/python3.9
   tasks:
     - name: Mongod service active
       ansible.builtin.systemd:

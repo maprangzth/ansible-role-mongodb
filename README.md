@@ -384,7 +384,7 @@ mongos_force_install: false
 mongodb_package: mongodb-org           # Package name to install
 mongodb_package_state: present         # present|latest|absent
 mongodb_pymongo_pip_version: "4.6.0"   # PyMongo version for pip install
-mongodb_reconfigure: false             # Force reconfiguration even if not changed
+mongodb_replication_reconfigure: false             # Force reconfiguration even if not changed
 ```
 
 ### Custom config escape hatch
@@ -592,12 +592,12 @@ If admin credentials are lost, run this two-step procedure:
 # Step 1: disable auth, update passwords
 ansible-playbook playbook.yml -i hosts \
   -t "mongodb,mongodb-force-restart" \
-  -e '{mongodb_reconfigure: true, mongodb_security_authorization_enabled: false, mongodb_admin_update_password: true, mongodb_users_update_password: true, mongodb_exporter_force_install: true}'
+  -e '{mongodb_replication_reconfigure: true, mongodb_security_authorization_enabled: false, mongodb_admin_update_password: true, mongodb_users_update_password: true, mongodb_exporter_force_install: true}'
 
 # Step 2: re-enable auth
 ansible-playbook playbook.yml -i hosts \
   -t "mongodb,mongodb-force-restart" \
-  -e '{mongodb_reconfigure: true}'
+  -e '{mongodb_replication_reconfigure: true}'
 ```
 
 ### Prometheus exporter

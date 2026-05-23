@@ -6,8 +6,13 @@ driver:
 
 platforms:
   - &node
-    image: "rockylinux:9"
-    dockerfile: Dockerfile.j2
+    # On arm64 hosts: pre-build amd64 image via scripts/build-molecule-amd64-images.sh,
+    #   then molecule uses it as-is (pre_build_image: true skips molecule's own build
+    #   step which would otherwise overwrite the amd64 tag with an arm64 rebuild).
+    # On amd64 CI runners: same image name works (build script can run on amd64 too).
+    image: local/molecule-rhel9-amd64:latest
+    pre_build_image: true
+    platform: linux/amd64
     command: /usr/lib/systemd/systemd
     privileged: true
     capabilities:

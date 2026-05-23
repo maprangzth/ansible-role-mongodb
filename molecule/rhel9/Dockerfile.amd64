@@ -1,0 +1,25 @@
+# Pre-built amd64 image for molecule rhel9 scenario.
+# Built manually via scripts/build-molecule-amd64-images.sh on arm64 hosts
+# (Apple Silicon) because MongoDB 8.0 ships only x86_64 server packages for
+# RHEL/Rocky Linux 9. CI on amd64 Linux runners uses the regular Dockerfile.j2
+# (this file is local-dev workaround only).
+#
+# Build:
+#   docker buildx build --platform linux/amd64 --load \
+#     -t local/molecule-rhel9-amd64:latest \
+#     -f Dockerfile.amd64 .
+FROM rockylinux:9
+
+ENV container=docker
+RUN dnf install -y --allowerasing \
+    systemd systemd-sysv \
+    python3 python3-pip \
+    sudo curl gnupg2 \
+    && dnf clean all \
+    && rm -f /usr/lib/systemd/system/multi-user.target.wants/* \
+            /etc/systemd/system/*.wants/* \
+            /usr/lib/systemd/system/local-fs.target.wants/*
+
+VOLUME ["/sys/fs/cgroup", "/run", "/run/lock", "/tmp"]
+STOPSIGNAL SIGRTMIN+3
+CMD ["/usr/lib/systemd/systemd"]

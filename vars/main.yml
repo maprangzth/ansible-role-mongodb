@@ -8,14 +8,17 @@ mongodb_exporter_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_archi
 # === Support matrix (sourced from docs/SUPPORT-MATRIX.md probe 2026-05-23) ===
 # Reflects ACTUAL repo.mongodb.org availability, not aspirational.
 mongodb_support_matrix:
-  # NOTE: 2026-05-23 deep probe of binary-<arch>/Packages.gz revealed that
-  # Debian 12 (bookworm) has NO arm64 mongodb-org-server packages for any
-  # MongoDB version. Only client tools (mongosh, atlas-cli) are arm64.
-  # Ubuntu jammy/noble arm64 + RHEL aarch64 all have full server packages.
+  # NOTE: 2026-05-23 deep probe of binary-<arch>/Packages.gz revealed:
+  # - Debian 12 (bookworm) has NO arm64 mongodb-org-server packages for any
+  #   MongoDB version. Only client tools (mongosh, atlas-cli) are arm64.
+  # - MongoDB 6.0 has NO server packages for Debian 12 at all (any arch).
+  #   The Debian 12 MongoDB 6.0 repo exists (HTTP 200) but contains only tools.
+  #   MongoDB 6.0 server packages are Debian 11 only; Debian 12 started at 7.0.
+  # - Ubuntu jammy/noble arm64 + RHEL aarch64 all have full server packages.
   # Keys use ansible_distribution_major_version values (e.g., "22" not "22.04"
   # for Ubuntu — Ansible returns just the major).
   "6.0":
-    Debian:    { "12": ["x86_64"] }
+    Debian:    { "11": ["x86_64"] }
     Ubuntu:    { "22": ["x86_64", "aarch64"] }
     RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
     Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
@@ -41,7 +44,3 @@ mongodb_replicaset_groups: >-
                                           ~ mongodb_sharded_host_group ~ '[0-9]+|'
                                           ~ mongodb_config_host_group ~ ')$') | list)
   }}
-
-# === Vault placeholders (kept for v1 compatibility) ===
-vault_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
-vault_url: "{{ lookup('env', 'VAULT_ADDR') }}"

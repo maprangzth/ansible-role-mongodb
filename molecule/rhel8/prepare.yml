@@ -7,8 +7,15 @@
       ansible.builtin.dnf:
         name:
           - python3.9
-          - python3.9-pip
+          - python39-pip
           - gnupg2
           - curl
           - ca-certificates
         state: present
+
+    - name: Override pip3 → pip3.9 (community.mongodb uses pip3 to install pymongo; 3.6 pip cannot find pymongo>=4.6)
+      ansible.builtin.file:
+        src: /usr/bin/pip3.9
+        dest: /usr/bin/pip3
+        state: link
+        force: true

@@ -1,4 +1,4 @@
 [mongo_cluster]
-host1
-host2 
-host3 mongodb_arbiter=True
+mongo01
+mongo02
+mongo03 mongodb_arbiter=True

@@ -20,49 +20,40 @@
     host: 127.0.0.1
     timeout: 60
 
-- name: Phase 1.5 — initiate replicaset (master gets priority 2, others 1 so election is deterministic)
+- name: Phase 1.4b — build rs member config (master gets priority 2 to win election)
+  ansible.builtin.set_fact:
+    _rs_member_config: >-
+      {{ _rs_member_config | default([])
+         + [{'host': item ~ ':' ~ mongodb_net_port,
+             'priority': 2 if item == mongodb_replicaset_masters[mongodb_main_group] else 1}] }}
+  loop: "{{ groups[mongodb_main_group] }}"
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+
+- name: Phase 1.5 — initiate replicaset (per-replicaset, master only)
   community.mongodb.mongodb_replicaset:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
     login_database: admin
     replica_set: "{{ mongodb_replication_replSetName }}"
-    members: "{{ _rs_members_with_priority }}"
-  vars:
-    _master_host: "{{ mongodb_replicaset_masters[mongodb_main_group] }}"
-    _rs_members_with_priority: >-
-      [
-        {% for h in groups[mongodb_main_group] %}
-          {
-            "host": "{{ h }}:{{ mongodb_net_port }}",
-            "priority": {{ 2 if h == _master_host else 1 }}
-          }{% if not loop.last %},{% endif %}
-        {% endfor %}
-      ]
+    members: "{{ _rs_member_config }}"
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))
   register: rs_init
 
-# Phase 1.6 — wait until master node reports myState == 1 (PRIMARY).
-# mongodb_status's default convergence check returns "ok" too eagerly on
-# fast runners (returns after rs.status() returns ANY mapping, including
-# transient states like SECONDARY during election). We need myState==1
-# specifically before Phase 1.7's writes will succeed via localhost exception.
-- name: Phase 1.6 — wait for master to reach PRIMARY (myState == 1)
-  ansible.builtin.command: >
-    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c
-    "import pymongo, sys;
-    c = pymongo.MongoClient('mongodb://127.0.0.1:{{ mongodb_net_port }}/?directConnection=true', serverSelectionTimeoutMS=2000);
-    s = c.admin.command('replSetGetStatus');
-    sys.exit(0 if s.get('myState') == 1 else 1)"
-  register: _phase16_primary
-  retries: 30
-  delay: 2
-  until: _phase16_primary.rc == 0
-  changed_when: false
+- name: Phase 1.6 — poll mongodb_status until PRIMARY elected
+  community.mongodb.mongodb_status:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    poll: 10
+    interval: 6
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))
+    - rs_init.changed | default(false) or not (rs_init.skipped | default(false))
 
 - name: Phase 1.7a — create root admin user (localhost exception, no auth yet)
   community.mongodb.mongodb_user:

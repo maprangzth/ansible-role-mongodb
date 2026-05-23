@@ -29,7 +29,7 @@
     host: "{{ _mongodb_net_bindip_item }}"
     port: "{{ mongodb_net_port }}"
     timeout: 60
-  with_items: "{{ mongodb_net_bindip.split(',') | map('replace', '0.0.0.0', '127.0.0.1') | list }}"
+  with_items: "{{ mongodb_net_bindIp.split(',') | map('replace', '0.0.0.0', '127.0.0.1') | list }}"
   loop_control:
     loop_var: _mongodb_net_bindip_item
   when:
@@ -68,7 +68,7 @@
     host: "{{ _mongos_net_bindip_item }}"
     port: "{{ mongos_net_port }}"
     timeout: 60
-  with_items: "{{ mongos_net_bindip.split(',') | map('replace', '0.0.0.0', '127.0.0.1') | list }}"
+  with_items: "{{ mongos_net_bindIp.split(',') | map('replace', '0.0.0.0', '127.0.0.1') | list }}"
   loop_control:
     loop_var: _mongos_net_bindip_item
   when:

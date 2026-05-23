@@ -11,7 +11,7 @@
 | MongoDB | OS/codename | amd64 + arm64 |
 |---|---|---|
 | 6.0 | debian/bullseye | ✅ |
-| 6.0 | debian/bookworm | ✅ |
+| 6.0 | debian/bookworm | ❌ |
 | 6.0 | debian/trixie | ❌ |
 | 6.0 | ubuntu/jammy | ✅ |
 | 6.0 | ubuntu/noble | ❌ |
@@ -49,7 +49,8 @@
 - **MongoDB 8.0 + Debian Bullseye (11)**: repo returned 404 — MongoDB 8.0 dropped Debian 11 support.
 - **MongoDB 6.0 + RHEL 10**: repo returned 404 — not yet published.
 - **MongoDB 7.0 + RHEL 10**: repo returned 200 — available despite RHEL 10 being newer.
-- **Debian 12 (bookworm) — arm64**: MongoDB does not publish `mongodb-org-server` packages for arm64 on Debian 12. Only amd64 is supported; use amd64 on Debian 12.
+- **MongoDB 6.0 + Debian 12 (bookworm)**: repo returns 200 but contains only client tools (mongosh, atlas-cli, database-tools) — no `mongodb-org-server`. MongoDB 6.0 server packages are only available for Debian 11 (bullseye). Use Debian 11 with `mongodb_allow_eol_version: true`.
+- **Debian 12 (bookworm) — arm64**: MongoDB does not publish `mongodb-org-server` packages for arm64 on Debian 12 for any version. Only amd64 is supported; use amd64 on Debian 12.
 
 ## Combinations excluded from v2.0 (per design spec §2)
 

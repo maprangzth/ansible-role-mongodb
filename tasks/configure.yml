@@ -23,7 +23,7 @@
   ansible.builtin.include_role:
     name: community.mongodb.mongodb_mongod
     apply:
-      no_log: false
+      no_log: true
   no_log: true
   vars:
     # Network — upstream: bind_ip / bind_ip_all / mongod_port
@@ -89,7 +89,7 @@
   ansible.builtin.include_role:
     name: community.mongodb.mongodb_config
     apply:
-      no_log: false
+      no_log: true
   no_log: true
   vars:
     # Network — upstream: bind_ip / bind_ip_all
@@ -134,7 +134,7 @@
   ansible.builtin.include_role:
     name: community.mongodb.mongodb_mongos
     apply:
-      no_log: false
+      no_log: true
   no_log: true
   vars:
     # Network — upstream: bind_ip / bind_ip_all

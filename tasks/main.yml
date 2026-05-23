@@ -42,6 +42,13 @@
       ansible.builtin.include_tasks: install.yml
       tags: [install]
 
+    - name: Probe replicaset bootstrap state (sets fact before configure.yml)
+      ansible.builtin.include_tasks: probe_replicaset_state.yml
+      when:
+        - mongodb_replication_replSetName | length > 0
+        - mongodb_main_group != mongos_host_group
+      tags: [configure, replicaset]
+
     - name: Configure mongod/mongos/configsvr (delegate to community.mongodb)
       ansible.builtin.include_tasks: configure.yml
       tags: [configure]

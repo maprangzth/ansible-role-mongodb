@@ -20,36 +20,6 @@
     host: 127.0.0.1
     timeout: 60
 
-# Re-run idempotency: detect whether the replicaset + auth are already
-# established from a previous run. If so, skip the open-replicaset
-# bootstrap (Phase 1.5 + 1.7) and jump straight to Phase 2 with the
-# bootstrapped fact set, so the configure include re-renders mongod.conf
-# with keyFile + auth and verify uses credentials.
-- name: Probe — replicaset already initialized + auth on? (re-run guard)
-  community.mongodb.mongodb_status:
-    login_host: 127.0.0.1
-    login_port: "{{ mongodb_net_port }}"
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_replSetName }}"
-    poll: 1
-    interval: 1
-  register: _rs_probe_authed
-  failed_when: false
-  no_log: true
-  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
-
-- name: Skip Phase 1 if replicaset is already auth-bootstrapped
-  ansible.builtin.set_fact:
-    mongodb_replicaset_bootstrapped: true
-  when:
-    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
-    - _rs_probe_authed is succeeded
-    - _rs_probe_authed.replicaset is defined
-    - _rs_probe_authed.replicaset is mapping
-    - (_rs_probe_authed.replicaset | length) > 0
-
 - name: Phase 1.5 — initiate replicaset (per-replicaset, master only)
   community.mongodb.mongodb_replicaset:
     login_host: 127.0.0.1

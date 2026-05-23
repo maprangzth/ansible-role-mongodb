@@ -1,0 +1,36 @@
+---
+# Detect whether replicaset + auth are already established from a previous run.
+# Must run BEFORE configure.yml so the authorization toggle is correct on re-apply.
+#
+# Strategy: every replicaset member probes its local mongod with credentials.
+# If the probe succeeds and returns a non-empty replicaset map, the bootstrap
+# is already complete → set the fact so configure.yml keeps auth+keyFile in
+# mongod.conf and Phase 1 tasks in replicaset.yml are skipped.
+
+- name: Probe — replicaset already initialized + auth on? (every member, re-run guard)
+  community.mongodb.mongodb_status:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    poll: 1
+    interval: 1
+  register: _rs_probe_authed
+  failed_when: false
+  no_log: true
+  when:
+    - mongodb_replication_replSetName | length > 0
+    - mongodb_main_group != mongos_host_group
+
+- name: Set bootstrapped fact based on local probe
+  ansible.builtin.set_fact:
+    mongodb_replicaset_bootstrapped: true
+  when:
+    - mongodb_replication_replSetName | length > 0
+    - mongodb_main_group != mongos_host_group
+    - _rs_probe_authed is succeeded
+    - _rs_probe_authed.replicaset is defined
+    - _rs_probe_authed.replicaset is mapping
+    - (_rs_probe_authed.replicaset | length) > 0

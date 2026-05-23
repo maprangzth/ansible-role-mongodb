@@ -49,6 +49,7 @@
 - **MongoDB 8.0 + Debian Bullseye (11)**: repo returned 404 — MongoDB 8.0 dropped Debian 11 support.
 - **MongoDB 6.0 + RHEL 10**: repo returned 404 — not yet published.
 - **MongoDB 7.0 + RHEL 10**: repo returned 200 — available despite RHEL 10 being newer.
+- **Debian 12 (bookworm) — arm64**: MongoDB does not publish `mongodb-org-server` packages for arm64 on Debian 12. Only amd64 is supported; use amd64 on Debian 12.
 
 ## Combinations excluded from v2.0 (per design spec §2)
 

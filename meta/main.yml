@@ -2,7 +2,6 @@
 galaxy_info:
   role_name: mongodb
   namespace: maprangzth
-  version: "2.0.0-rc1"
   author: maprangzth (forked from Vitaly Kargin / superset1)
   description: |
     Deploy and manage MongoDB 6.0/7.0/8.0 (replicaset + sharding + auth + TLS + exporter)

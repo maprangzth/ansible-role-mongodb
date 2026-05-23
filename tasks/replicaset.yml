@@ -35,32 +35,26 @@
     - not (mongodb_replicaset_bootstrapped | default(false))
   register: rs_init
 
-- name: Phase 1.6 — poll mongodb_status until PRIMARY elected
-  community.mongodb.mongodb_status:
-    login_host: 127.0.0.1
-    login_port: "{{ mongodb_net_port }}"
-    replica_set: "{{ mongodb_replication_replSetName }}"
-    poll: 10
-    interval: 6
+# Phase 1.6 — wait until master node reports myState == 1 (PRIMARY).
+# mongodb_status's default convergence check returns "ok" too eagerly on
+# fast runners (returns after rs.status() returns ANY mapping, including
+# transient states like SECONDARY during election). We need myState==1
+# specifically before Phase 1.7's writes will succeed via localhost exception.
+- name: Phase 1.6 — wait for master to reach PRIMARY (myState == 1)
+  ansible.builtin.command: >
+    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c
+    "import pymongo, sys;
+    c = pymongo.MongoClient('mongodb://127.0.0.1:{{ mongodb_net_port }}/?directConnection=true', serverSelectionTimeoutMS=2000);
+    s = c.admin.command('replSetGetStatus');
+    sys.exit(0 if s.get('myState') == 1 else 1)"
+  register: _phase16_primary
+  retries: 30
+  delay: 2
+  until: _phase16_primary.rc == 0
+  changed_when: false
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))
-    - rs_init.changed | default(false) or not (rs_init.skipped | default(false))
-
-- name: Phase 1.7-debug — show rs.status before user create  # TEMP for CI debug
-  community.mongodb.mongodb_shell:
-    login_host: 127.0.0.1
-    login_port: "{{ mongodb_net_port }}"
-    eval: "JSON.stringify({myState: rs.status().myState, members: rs.status().members.map(m => m.stateStr)})"
-  register: _rs_dbg
-  failed_when: false
-  changed_when: false
-  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
-
-- name: Phase 1.7-debug — print
-  ansible.builtin.debug:
-    var: _rs_dbg
-  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
 
 - name: Phase 1.7a — create root admin user (localhost exception, no auth yet)
   community.mongodb.mongodb_user:
@@ -77,7 +71,7 @@
   retries: 12
   delay: 5
   until: _phase17_user is succeeded
-  no_log: false  # TEMP for CI debug
+  no_log: true
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))

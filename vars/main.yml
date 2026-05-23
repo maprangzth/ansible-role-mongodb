@@ -41,7 +41,3 @@ mongodb_replicaset_groups: >-
                                           ~ mongodb_sharded_host_group ~ '[0-9]+|'
                                           ~ mongodb_config_host_group ~ ')$') | list)
   }}
-
-# === Vault placeholders (kept for v1 compatibility) ===
-vault_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
-vault_url: "{{ lookup('env', 'VAULT_ADDR') }}"

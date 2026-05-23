@@ -70,7 +70,7 @@
   retries: 12
   delay: 5
   until: _phase17_user is succeeded
-  no_log: false
+  no_log: true
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))

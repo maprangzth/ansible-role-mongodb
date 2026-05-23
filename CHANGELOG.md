@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased] — v2.0.0
+## [2.0.0-rc1] — 2026-05-23
 
 > **Breaking change release.** v2.0.0 is a clean-break refactor and is NOT backwards-compatible with v1.x.
 > See `docs/MIGRATION-v2.md` for the full migration guide.
@@ -80,6 +80,20 @@ See `docs/MIGRATION-v2.md` → Removed Variables table for the complete list wit
 
 - Keyfile deploy now uses `mode: "0400"` and enforces `no_log: true` across all keyfile tasks.
 - `validate.yml` preflight now explicitly fails if any v1 SSL (`mongodb_net_ssl_*`) or v1 MMS vars are detected in inventory, preventing silent misconfiguration.
+
+### Fixed
+
+- **`handlers/main.yml`** — renamed `mongodb_net_bindip` → `mongodb_net_bindIp` and `mongos_net_bindip` → `mongos_net_bindIp` in all restart handler listen/notify references (F1). Runtime bug: handlers fired with an undefined variable on any restart trigger.
+- **`tasks/configure.yml`** — added `apply: {no_log: true}` to all three `include_role` blocks (`mongodb_mongod`, `mongodb_config`, `mongodb_mongos`) (F7). The top-level `no_log: true` did not propagate to inner tasks; `apply:` is required to protect credentials in delegated role output.
+- **`vars/main.yml`** — removed `vault_token` and `vault_url` env lookups (F5). These internal aliases were inconsistent with the v2.0 removal claim in the CHANGELOG and confused operators managing their own Vault integration.
+- **`defaults/main.yml`** — removed stale `mongodb_reconfigure` alias (F4). The correct variable is `mongodb_replication_reconfigure`; the alias silently accepted the wrong name without error.
+- **`docs/SUPPORT-MATRIX.md`** — corrected MongoDB 6.0 + Debian 12 entry (❌); MongoDB 6.0 repo for Debian 12 returns HTTP 200 but contains only client tools, no server packages. Added Debian 11 as the correct platform for MongoDB 6.0 (F6).
+- **Orphaned templates** removed: `templates/mongodb.logrotate.j2`, `templates/mongos.logrotate.j2`, `templates/mongodb.service.j2` (F2/F3). No active `template:` task references these files; they were dead code from pre-v2 structure.
+- **Nightly molecule scenarios** (`rhel8`, `arm64-ubuntu2204`) — added `command` and `volumes: /sys/fs/cgroup:rw` to Docker platform config. Required for systemd service management in cgroupv2 Docker on GitHub Actions (Ubuntu 22+ runners).
+- **`molecule/rhel8/prepare.yml`** — corrected Python 3.9 pip package name (`python3.9-pip` → `python39-pip`) and added `pip3 → pip3.9` symlink. `community.mongodb` uses `pip3` to install `pymongo`; Rocky Linux 8's default `pip3` targets Python 3.6 which cannot satisfy `pymongo>=4.6`.
+- **`molecule/debian12-mongo60`** — switched container image to `debian:11` (bullseye); MongoDB 6.0 server packages are not available for Debian 12.
+- **`vars/main.yml` support matrix** — corrected MongoDB 6.0 Debian entry from `"12"` to `"11"`.
+- **Nightly molecule `verify.yml`** (`rhel8`, `arm64-ubuntu2204`, `debian12-mongo60`) — added `vars:` block with auth credentials and `ansible_python_interpreter`. Nightly scenarios link `tests/hosts-cluster` as inventory; molecule does not inject converge vars into linked-inventory verify runs, leaving `mongodb_root_admin_password` and the Python interpreter path undefined. On RHEL 8, this caused `community.mongodb.mongodb_status` to fall back to Python 3.6 (which has no pymongo), failing the replicaset health check.
 
 ---
 

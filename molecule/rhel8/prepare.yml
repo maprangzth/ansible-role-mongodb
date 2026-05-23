@@ -7,7 +7,7 @@
       ansible.builtin.dnf:
         name:
           - python3.9
-          - python3.9-pip
+          - python39-pip
           - gnupg2
           - curl
           - ca-certificates

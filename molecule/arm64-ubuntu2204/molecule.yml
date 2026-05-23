@@ -1,4 +1,5 @@
 # Requires QEMU multiarch (docker/setup-qemu-action in CI) or arm64 self-hosted runner. Slow under QEMU emulation — nightly only.
+# Ubuntu 22.04 (jammy) has full arm64 MongoDB 8.0 server packages; Debian 12 does not.
 ---
 dependency:
   name: galaxy
@@ -7,7 +8,7 @@ driver:
 
 platforms:
   - &node
-    image: "debian:12"
+    image: "ubuntu:22.04"
     platform: linux/arm64
     dockerfile: Dockerfile.j2
     privileged: true

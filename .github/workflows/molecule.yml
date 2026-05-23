@@ -57,14 +57,14 @@ jobs:
         scenario:
           - debian12-mongo60
           - rhel8
-          - arm64-debian12
+          - arm64-ubuntu2204
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Setup QEMU for arm64
-        if: matrix.scenario == 'arm64-debian12'
+        if: matrix.scenario == 'arm64-ubuntu2204'
         uses: docker/setup-qemu-action@v3
       - run: pip install ansible-core==2.15.* molecule "molecule-plugins[docker]" docker pymongo packaging
       - run: ansible-galaxy collection install -r requirements.yml

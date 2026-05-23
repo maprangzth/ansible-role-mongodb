@@ -20,16 +20,24 @@
     host: 127.0.0.1
     timeout: 60
 
-- name: Phase 1.5 — initiate replicaset (per-replicaset, master only)
+- name: Phase 1.5 — initiate replicaset (master gets priority 2, others 1 so election is deterministic)
   community.mongodb.mongodb_replicaset:
     login_host: 127.0.0.1
     login_port: "{{ mongodb_net_port }}"
     login_database: admin
     replica_set: "{{ mongodb_replication_replSetName }}"
-    members: >-
-      {{ groups[mongodb_main_group]
-         | map('regex_replace', '$', ':' ~ mongodb_net_port)
-         | list }}
+    members: "{{ _rs_members_with_priority }}"
+  vars:
+    _master_host: "{{ mongodb_replicaset_masters[mongodb_main_group] }}"
+    _rs_members_with_priority: >-
+      [
+        {% for h in groups[mongodb_main_group] %}
+          {
+            "host": "{{ h }}:{{ mongodb_net_port }}",
+            "priority": {{ 2 if h == _master_host else 1 }}
+          }{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
     - not (mongodb_replicaset_bootstrapped | default(false))

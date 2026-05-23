@@ -34,11 +34,12 @@ build() {
   fi
 
   echo "BUILD $scenario  →  $tag"
-  # Use sdc-builder (docker-container driver) which has QEMU binfmt support.
-  # The default docker driver on macOS may not register the amd64 emulator
-  # handler inside the container build context, causing "exec format error".
+  # On macOS dev hosts, the default docker driver may fail registering the
+  # amd64 emulator handler inside the build context — in that case run with:
+  #   docker buildx create --use --name molecule-amd64-builder
+  # before this script. On GitHub Actions linux runners, the default driver
+  # works after the tonistiigi/binfmt --install step above.
   docker buildx build \
-    --builder sdc-builder \
     --platform linux/amd64 \
     --load \
     -t "$tag" \

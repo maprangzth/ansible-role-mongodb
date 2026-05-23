@@ -57,7 +57,6 @@ provisioner:
       timeout: 60
   inventory:
     links:
-      group_vars: ../../tests/group_vars/
       hosts: ../../tests/hosts-cluster
   playbooks:
     prepare: prepare.yml

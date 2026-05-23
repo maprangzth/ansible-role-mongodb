@@ -1,0 +1,22 @@
+---
+extends: default
+ignore: |
+  tests/
+  molecule/
+rules:
+  line-length:
+    max: 160
+    level: warning
+  truthy:
+    allowed-values: ["true", "false"]
+  comments-indentation: disable
+  document-start: disable
+  colons:
+    max-spaces-after: -1
+  braces:
+    max-spaces-inside: -1  # allow alignment spacing in support matrix (overrides ansible-lint requirement)
+  comments:
+    min-spaces-from-content: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

@@ -1,0 +1,60 @@
+---
+- name: Install python3.9 on RHEL 8 (system python is 3.6 — incompatible with pymongo 4.6+)
+  ansible.builtin.dnf:
+    name: python3.9
+    state: present
+  when:
+    - ansible_os_family == "RedHat"
+    - ansible_distribution_major_version == "8"
+
+- name: Install python3-pip (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: python3-pip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Install python3-pip (RHEL)
+  ansible.builtin.dnf:
+    name: python3-pip
+    state: present
+  when: ansible_os_family == "RedHat"
+
+# PEP 668: Debian 12 + Ubuntu 24.04 + RHEL 9+ mark system Python as
+# "externally managed" (via EXTERNALLY-MANAGED marker file under the
+# Python stdlib dir). pip refuses system-wide install without explicit
+# override. Older distros (Ubuntu 22.04, RHEL 8) don't have PEP 668 AND
+# don't have the --break-system-packages flag, so the flag is only passed
+# when the marker file exists.
+- name: Detect PEP 668 externally-managed marker
+  ansible.builtin.find:
+    paths: /usr/lib
+    patterns: EXTERNALLY-MANAGED
+    recurse: true
+    file_type: file
+  register: _pep668_search
+  changed_when: false
+
+- name: Set PEP 668 marker fact
+  ansible.builtin.set_fact:
+    _pep668_marker:
+      stat:
+        exists: "{{ _pep668_search.files | length > 0 }}"
+
+- name: Install pymongo >=4.6 via pip (using configured interpreter)
+  ansible.builtin.pip:
+    name: "pymongo>=4.6,<5.0"
+    state: present
+    executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') | dirname }}/pip3"
+    extra_args: "{{ '--break-system-packages' if (_pep668_marker.stat.exists | default(false)) else omit }}"
+  when: >-
+    mongodb_replication_replSetName | length > 0
+    or (mongodb_replicaset_masters[mongodb_main_group] | default('')) == inventory_hostname
+
+- name: Install 'packaging' Python module (used by validate.yml pymongo version check)
+  ansible.builtin.pip:
+    name: packaging
+    state: present
+    executable: "{{ ansible_python_interpreter | default('/usr/bin/python3') | dirname }}/pip3"
+    extra_args: "{{ '--break-system-packages' if (_pep668_marker.stat.exists | default(false)) else omit }}"

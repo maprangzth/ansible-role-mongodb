@@ -1,37 +1,47 @@
 ---
-# Constant vars
+# === Architecture detection (fails closed via validate.yml) ===
+mongodb_supported_architectures: ["x86_64", "aarch64"]
+mongodb_apt_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+mongodb_rpm_arch: "{{ {'x86_64': 'x86_64', 'aarch64': 'aarch64'}[ansible_architecture] }}"
+mongodb_exporter_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
 
-vault_token: "{{ lookup('env','VAULT_TOKEN') }}"
-vault_url: "{{ lookup('env','VAULT_ADDR') }}"
+# === Support matrix (sourced from docs/SUPPORT-MATRIX.md probe 2026-05-23) ===
+# Reflects ACTUAL repo.mongodb.org availability, not aspirational.
+mongodb_support_matrix:
+  # NOTE: 2026-05-23 deep probe of binary-<arch>/Packages.gz revealed that
+  # Debian 12 (bookworm) has NO arm64 mongodb-org-server packages for any
+  # MongoDB version. Only client tools (mongosh, atlas-cli) are arm64.
+  # Ubuntu jammy/noble arm64 + RHEL aarch64 all have full server packages.
+  # Keys use ansible_distribution_major_version values (e.g., "22" not "22.04"
+  # for Ubuntu — Ansible returns just the major).
+  "6.0":
+    Debian:    { "12": ["x86_64"] }
+    Ubuntu:    { "22": ["x86_64", "aarch64"] }
+    RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+    Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+    AlmaLinux: { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+  "7.0":
+    Debian:    { "12": ["x86_64"] }
+    Ubuntu:    { "22": ["x86_64", "aarch64"] }
+    # NOTE: MongoDB 7.0 has NO Ubuntu 24.04 (noble) repo per probe 2026-05-23.
+    RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+    Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+    AlmaLinux: { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+  "8.0":
+    Debian:    { "12": ["x86_64"] }
+    Ubuntu:    { "22": ["x86_64", "aarch64"], "24": ["x86_64", "aarch64"] }
+    RedHat:    { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+    Rocky:     { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
+    AlmaLinux: { "8": ["x86_64", "aarch64"], "9": ["x86_64", "aarch64"] }
 
-os: "linux"
-bin_arch: "amd64"
+# === Replicaset group discovery (per §5.1 per-replicaset execution) ===
+mongodb_replicaset_groups: >-
+  {{
+    (groups.keys() | select('match', '^(' ~ mongodb_replication_host_group ~ '|'
+                                          ~ mongodb_sharded_host_group ~ '[0-9]+|'
+                                          ~ mongodb_config_host_group ~ ')$') | list)
+  }}
 
-mongodb_valid_groups: "{{ [mongodb_standalone_host_group, mongodb_replication_host_group, mongodb_sharded_host_group, mongodb_config_host_group, mongos_host_group] }}"
-
-mongodb_major_version: "{{ mongodb_version[0:3] }}"
-mongodb_apt_keyserver: keyserver.ubuntu.com
-
-## Sharding options
-mongodb_sharding_enabled: "{{ true if (mongodb_config_host_group in groups.keys() or mongos_host_group in groups.keys()) else false }}"
-mongodb_sharding_role: "{{ 'shardsvr' if mongodb_sharded_host_group in mongodb_main_group else 'configsvr' if mongodb_main_group == mongodb_config_host_group else '' }}"
-
-mongodb_net_ssl_PEMKeyFile_path: "{{ mongodb_net_tls_certificateKeyFile_path }}"
-mongodb_net_ssl_CAFile_path: "{{ mongodb_net_tls_CAFile_path }}"
-mongodb_net_ssl_CRLFile_path: "{{ mongodb_net_tls_CRLFile_path }}"
-mongodb_net_ssl_clusterFile_path: "{{ mongodb_net_tls_clusterFile_path }}"
-mongodb_net_ssl_clusterCAFile_path: "{{ mongodb_net_tls_clusterCAFile_path }}"
-mongodb_net_tls_certificateKeyFile_path: /etc/ssl/mongodb.pem
-mongodb_net_tls_CAFile_path: /etc/ssl/mongodb-ca.pem
-mongodb_net_tls_CRLFile_path: /etc/ssl/mongodb-crl.pem
-mongodb_net_tls_clusterFile_path: /etc/ssl/mongodb-cluster.pem
-mongodb_net_tls_clusterCAFile_path: /etc/ssl/mongodb-cluster-ca.pem
-
-mongodb_custom_backup_role: # When `mongodb_major_version` is version('6.0', '>=')
-  - name: backupCustom
-    state: present
-    roles: [{ role: backup, db: "{{ mongodb_login_database }}" }]
-    database: "{{ mongodb_login_database }}"
-    privileges:
-      - resource: { db: config, collection: system.preimages }
-        actions: [ find ]
+# === Vault placeholders (kept for v1 compatibility) ===
+vault_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+vault_url: "{{ lookup('env', 'VAULT_ADDR') }}"

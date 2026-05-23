@@ -1,0 +1,70 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+
+platforms:
+  - &node
+    # On arm64 hosts: pre-build amd64 image via scripts/build-molecule-amd64-images.sh,
+    #   then molecule uses it as-is (pre_build_image: true skips molecule's own build
+    #   step which would otherwise overwrite the amd64 tag with an arm64 rebuild).
+    # On amd64 CI runners: same image name works (build script can run on amd64 too).
+    image: local/molecule-rhel9-amd64:latest
+    pre_build_image: true
+    platform: linux/amd64
+    command: /usr/lib/systemd/systemd
+    privileged: true
+    capabilities:
+      - SYS_ADMIN
+    cgroupns_mode: host
+    cgroup_parent: docker.slice
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    security_opts:
+      - seccomp=unconfined
+    docker_networks:
+      - name: mongo_test_net
+        ipam_config:
+          - subnet: 10.99.0.0/24
+    exposed_ports:
+      - 27017/tcp
+      - 27018/tcp
+      - 27019/tcp
+      - 9216/tcp
+    name: mongo01
+    hostname: mongo01
+    networks:
+      - name: mongo_test_net
+        ipv4_address: 10.99.0.10
+    groups:
+      - mongo_cluster
+  - <<: *node
+    name: mongo02
+    hostname: mongo02
+    networks:
+      - name: mongo_test_net
+        ipv4_address: 10.99.0.11
+  - <<: *node
+    name: mongo03
+    hostname: mongo03
+    networks:
+      - name: mongo_test_net
+        ipv4_address: 10.99.0.12
+
+provisioner:
+  name: ansible
+  log: true
+  config_options:
+    defaults:
+      display_skipped_hosts: false
+      timeout: 60
+  playbooks:
+    prepare: prepare.yml
+
+verifier:
+  name: ansible

@@ -1,8 +1,0 @@
----
-
-- name: Converge MongoDB
-  hosts: mongo_cluster
-  tasks:
-    - name: "Include mongodb"
-      include_role:
-        name: "mongodb"

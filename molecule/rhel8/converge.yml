@@ -1,0 +1,16 @@
+---
+- name: Converge — apply role
+  hosts: all
+  become: true
+  vars:
+    mongodb_version: "8.0"
+    ansible_python_interpreter: /usr/bin/python3.9
+    mongodb_root_admin_password: "ConvergePwd!8x"
+    mongodb_user_admin_password: "ConvergePwd!8x"
+    mongodb_root_backup_password: "ConvergePwd!8x"
+    mongodb_exporter_password: "ConvergePwd!8x"
+    mongodb_security_keyfile_content: |
+      {{ 'a' * 768 }}
+    mongodb_replication_replSetName: rs01
+  roles:
+    - role: maprangzth.mongodb

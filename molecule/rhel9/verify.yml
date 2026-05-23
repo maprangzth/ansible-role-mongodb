@@ -1,0 +1,70 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  vars:
+    mongodb_root_admin_name: mongoroot
+    mongodb_root_admin_password: "ConvergePwd!8x"
+    mongodb_user: mongod
+  tasks:
+    - name: Mongod service active
+      ansible.builtin.systemd:
+        name: mongod
+      register: svc
+
+    - name: Assert mongod is active
+      ansible.builtin.assert:
+        that: svc.status.ActiveState == "active"
+
+    - name: Port 27017 listening
+      ansible.builtin.wait_for:
+        port: 27017
+        timeout: 5
+
+    - name: Check mongod version is 8.0.x
+      ansible.builtin.command: mongod --version
+      register: ver
+      changed_when: false
+
+    - name: Assert mongod version
+      ansible.builtin.assert:
+        that: "'db version v8.' in ver.stdout"
+
+    - name: Replicaset healthy (auth-aware)
+      community.mongodb.mongodb_status:
+        replica_set: rs01
+        poll: 6
+        interval: 5
+        login_user: "{{ mongodb_root_admin_name }}"
+        login_password: "{{ mongodb_root_admin_password }}"
+        login_database: admin
+        login_host: 127.0.0.1
+      no_log: true
+      register: rs
+
+    - name: Assert replicaset mapping returned
+      ansible.builtin.assert:
+        that: rs.replicaset is mapping
+
+    - name: Anon connection rejected
+      ansible.builtin.command: mongosh --quiet --eval "db.adminCommand('listDatabases')"
+      register: anon
+      failed_when: anon.rc == 0
+      changed_when: false
+
+    - name: Keyfile perms 0400 + correct owner
+      ansible.builtin.stat:
+        path: /etc/mongodb-keyfile
+      register: kf
+
+    - name: Assert keyfile perms
+      ansible.builtin.assert:
+        that:
+          - kf.stat.mode == "0400"
+          - kf.stat.pw_name == mongodb_user
+
+    - name: Exporter listening 9216
+      ansible.builtin.wait_for:
+        port: 9216
+        timeout: 5
+      when: mongodb_exporter_enabled | default(true)

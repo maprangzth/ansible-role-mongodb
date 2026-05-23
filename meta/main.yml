@@ -1,45 +1,30 @@
 ---
-
 galaxy_info:
   role_name: mongodb
-  author: Vitaly Kargin
-  namespace: superset1
-  company: WB
-  description: Manage MongoDB with authentication, replica sets and sharded databases
-
+  namespace: maprangzth
+  author: maprangzth (forked from Vitaly Kargin / superset1)
+  description: |
+    Deploy and manage MongoDB 6.0/7.0/8.0 (replicaset + sharding + auth + TLS + exporter)
+    on RHEL/Rocky 9, Debian 12, Ubuntu 22.04/24.04. amd64 + arm64.
+    Forked from superset1/ansible-role-mongodb (unmaintained since 2023) at v1.6.5.
   license: MIT
-
-  min_ansible_version: 2.5
-
+  min_ansible_version: "2.15"
   platforms:
-    - name: Ubuntu
-      versions:
-        - xenial
-        - bionic
-        - focal
-    - name: Debian
-      versions:
-        - jessie
-        - stretch
-        - buster
-        - bullseye
     - name: EL
-      versions:
-        - 6
-        - 7
-        - 8
-    - name: Amazon
-      versions:
-        - Candidate
+      versions: ["8", "9"]
+    - name: Debian
+      versions: ["bookworm"]
+    - name: Ubuntu
+      versions: ["jammy", "noble"]
   galaxy_tags:
     - mongodb
-    - cluster
-    - sharding
     - database
     - nosql
-    - nodeexporter
-    - mongodbexporter
-    - vault
+    - cluster
+    - sharding
+    - replicaset
+    - tls
+    - prometheus
 
 dependencies: []
 

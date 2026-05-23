@@ -1,286 +1,270 @@
 ---
-- block:
-  - name: Check Only One Variable 'mongodb_net_ssl_enabled' or 'mongodb_net_tls_enabled' is True or Both are False
-    assert:
-      that:
-        - (not (mongodb_net_ssl_enabled and mongodb_net_tls_enabled))
-      fail_msg: "Use only one variable mongodb_net_ssl_enabled or mongodb_net_tls_enabled or set mongodb_net_(ssl|tls)_enabled to False!"
-      quiet: true
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Version MongoDB if Variable 'mongodb_net_ssl_enabled' or 'mongodb_net_tls_enabled' is True
-    assert:
-      that:
-        - ((mongodb_net_ssl_enabled and mongodb_major_version is version("4.2", "<")) or (not mongodb_net_ssl_enabled)) and
-          ((mongodb_net_tls_enabled and mongodb_major_version is version("4.2", ">=")) or (not mongodb_net_tls_enabled))
-      fail_msg: "Use mongodb_net_ssl_enabled with MongoDB version < 4.2, but mongodb_net_tls_enabled with MongoDB version >= 4.2 or set mongodb_net_(ssl|tls)_enabled to False!"
-      quiet: true
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Value of Variable 'mongodb_net_(ssl|tls)_config["mode"]' if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-    assert:
-      that:
-        - ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex("requireSSL|preferSSL|allowSSL|disabled")) or (not mongodb_net_ssl_enabled)) and
-          ((mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex("requireTLS|preferTLS|allowTLS|disabled")) or (not mongodb_net_tls_enabled))
-      fail_msg: "Set mongodb_net_(ssl|tls)_config['mode'] to (require(SSL|TLS)/prefer(SSL|TLS)/allow(SSL|TLS)/disabled) or set mongodb_net_(ssl|tls)_enabled to False!"
-      quiet: true
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Only One Option 'mongodb_net_(ssl|tls)_config["PEMKeyFileContent|certificateKeyFile"]' or 'mongodb_net_(ssl|tls)_config["certificateSelector"]' is Defined if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-    assert:
-      that:
-        - (not (mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['certificateSelector'] is defined)) or
-          (not (mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateSelector'] is defined))
-      fail_msg: "Use only one option mongodb_net_(ssl|tls)_config['PEMKeyFileContent|certificateKeyFile'] or mongodb_net_(ssl|tls)_config['certificateSelector'], they are mutually exclusive, or set mongodb_net_(ssl|tls)_enabled to False!"
-      quiet: true
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Value of Variable 'mongodb_net_(ssl|tls)_config["certificateSelector"]' if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-    assert:
-      that:
-        - ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['certificateSelector'] is defined and mongodb_net_ssl_config['certificateSelector']|length > 0) or (not mongodb_net_ssl_enabled)) and
-          ((mongodb_net_tls_enabled and mongodb_net_tls_config['certificateSelector'] is defined and mongodb_net_tls_config['certificateSelector']|length > 0) or (not mongodb_net_tls_enabled))
-      fail_msg: "Fill in the value of variable mongodb_net_(ssl|tls)_config['certificateSelector'] or set mongodb_net_(ssl|tls)_enabled to False"
-      quiet: true
-    when:
-      - mongodb_net_ssl_config['PEMKeyFileContent'] is undefined
-      - mongodb_net_tls_config['certificateKeyFileContent'] is undefined
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Value of Variable 'mongodb_net_(ssl|tls)_config["PEMKeyFileContent|certificateKeyFileContent"]' if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-    assert:
-      that:
-        - ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) or (not mongodb_net_ssl_enabled)) and
-          ((mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) or (not mongodb_net_tls_enabled))
-      fail_msg: "Fill in the value of variable mongodb_net_(ssl|tls)_config['PEMKeyFileContent|certificateKeyFileContent'] or set mongodb_net_(ssl|tls)_enabled to False"
-      quiet: true
-    when:
-     - mongodb_net_ssl_config['certificateSelector'] is undefined
-     - mongodb_net_tls_config['certificateSelector'] is undefined
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Value of Variable 'mongodb_net_(ssl|tls)_config["CAFileContent"]' if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-    assert:
-      that:
-        - ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) or (not mongodb_net_ssl_enabled)) and
-          ((mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) or (not mongodb_net_tls_enabled))
-      fail_msg: "Fill in the value of variable mongodb_net_(ssl|tls)_config['CAFileContent'] or set mongodb_net_(ssl|tls)_enabled to False!"
-      quiet: true
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  - name: Check Only One Option 'mongodb_net_(ssl|tls)_config["clusterFileContent"]' or 'mongodb_net_(ssl|tls)_config["clusterCertificateSelector"]' is Defined if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-    assert:
-      that:
-        - (not (mongodb_net_ssl_config['clusterFileContent'] is defined and mongodb_net_ssl_config['clusterCertificateSelector'] is defined)) or
-          (not (mongodb_net_tls_config['clusterFileContent'] is defined and mongodb_net_tls_config['clusterCertificateSelector'] is defined))
-      fail_msg: "Use only one option mongodb_net_(ssl|tls)_config['clusterFileContent'] or mongodb_net_(ssl|tls)_config['clusterCertificateSelector'], they are mutually exclusive, or set mongodb_net_(ssl|tls)_enabled to False!"
-      quiet: true
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  # - name: Check Value of Variable 'mongodb_net_(ssl|tls)_config["clusterCertificateSelector"]' if Variable  'mongodb_net_(ssl|tls)_enabled' is True
-  #   assert:
-  #     that:
-  #       - ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['clusterCertificateSelector'] is defined and mongodb_net_ssl_config['clusterCertificateSelector']|length > 0) or (not mongodb_net_ssl_enabled)) and
-  #         ((mongodb_net_tls_enabled and mongodb_net_tls_config['clusterCertificateSelector'] is defined and mongodb_net_tls_config['clusterCertificateSelector']|length > 0) or (not mongodb_net_tls_enabled))
-  #     fail_msg: "Fill in the value of variable mongodb_net_(ssl|tls)_config['clusterCertificateSelector'] or set mongodb_net_(ssl|tls)_enabled to False"
-  #     quiet: true
-  #   when: (not (mongodb_net_ssl_config['clusterFileContent'] is defined and mongodb_net_tls_config['clusterFileContent'] is defined))
-  #   tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  # - name: Check Value of Variable 'mongodb_net_(ssl|tls)_config["clusterFileContent"]' if Variable 'mongodb_net_(ssl|tls)_enabled' is True
-  #   assert:
-  #     that:
-  #       - ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['clusterFileContent'] is defined and mongodb_net_ssl_config['clusterFileContent']|length > 0) or (not mongodb_net_ssl_enabled)) and
-  #         ((mongodb_net_tls_enabled and mongodb_net_tls_config['clusterFileContent'] is defined and mongodb_net_tls_config['clusterFileContent']|length > 0) or (not mongodb_net_tls_enabled))
-  #     fail_msg: "Fill in the value of variable mongodb_net_(ssl|tls)_config['clusterFileContent'] or set mongodb_net_(ssl|tls)_enabled to False"
-  #     quiet: true
-  #   when: (not (mongodb_net_ssl_config['clusterCertificateSelector'] is defined and mongodb_net_tls_config['clusterCertificateSelector'] is defined))
-  #   tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-  when: mongodb_net_ssl_enabled or mongodb_net_tls_enabled
-  tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-- name: Check the Group '{{ mongodb_standalone_host_group }}' Exists if Standalone MongoDB
-  assert:
+# === Architecture preflight (fail closed) ===
+- name: Assert supported CPU architecture
+  ansible.builtin.assert:
     that:
-      - groups[mongodb_standalone_host_group] is defined
-    fail_msg: "Create '{{ mongodb_standalone_host_group }}' group in hosts file and add your servers to it!"
-    quiet: true
-  when: 
-    - not mongodb_replication_enabled
-    - not mongodb_sharding_enabled
-  tags: [mongodb, mongodb-configure]
+      - ansible_architecture in mongodb_supported_architectures
+    fail_msg: >-
+      Unsupported CPU architecture: {{ ansible_architecture }}.
+      Allowed: {{ mongodb_supported_architectures }}.
+      This role supports x86_64 (amd64) and aarch64 (arm64) only.
 
-- name: Check the Group '{{ mongodb_replication_host_group }}' Exists if Replicaset
-  assert:
+# === Detect installed MongoDB major version ===
+- name: Detect installed MongoDB
+  ansible.builtin.command: mongod --version
+  register: mongod_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Parse installed major version (robust)
+  ansible.builtin.set_fact:
+    mongodb_installed_major: >-
+      {{ (((mongod_installed.stdout | default('') | regex_search('db version v(\d+\.\d+)', '\1')) or []) + [''])
+         | first }}
+  when: mongod_installed.rc | default(1) == 0
+
+- name: Block accidental major-version upgrade
+  ansible.builtin.fail:
+    msg: |
+      Installed MongoDB {{ mongodb_installed_major }} differs from target {{ mongodb_major_version }}.
+      In-place major upgrades require manual step-wise procedure (see docs/MIGRATION-v2.md).
+      Set mongodb_allow_major_upgrade: true ONLY after completing the manual upgrade procedure.
+  when:
+    - mongodb_installed_major | default('') | length > 0
+    - mongodb_installed_major != mongodb_major_version
+    - not (mongodb_allow_major_upgrade | default(false) | bool)
+
+# === Removed v1 vars (clean-break enforcement) ===
+- name: Reject removed v1 variables (clean-break enforcement)
+  ansible.builtin.fail:
+    msg: >-
+      Variable '{{ item }}' was removed in v2.0.0.
+      See docs/MIGRATION-v2.md for the v2.0 replacement.
+      Remove this variable from your inventory/playbook before running this role.
+  loop: "{{ _removed_v1_vars }}"
+  loop_control:
+    label: "{{ item }}"
+  vars:
+    _removed_v1_vars:
+      # SSL legacy block — replaced by mongodb_net_tls_* flat vars
+      - mongodb_net_ssl_enabled
+      - mongodb_net_ssl_PEMKeyFile_path
+      - mongodb_net_ssl_CAFile_path
+      - mongodb_net_ssl_CRLFile_path
+      - mongodb_net_ssl_clusterFile_path
+      - mongodb_net_ssl_clusterCAFile_path
+      # TLS v1 nested schema — replaced by flat mongodb_net_tls_* vars
+      - mongodb_net_tls_config
+      - mongodb_net_tls_certificateKeyFile_path
+      - mongodb_net_tls_CAFile_path
+      - mongodb_net_tls_CRLFile_path
+      - mongodb_net_tls_clusterFile_path
+      - mongodb_net_tls_clusterCAFile_path
+      # MMS agent — MongoDB Ops Manager replaced MMS; agent no longer distributed
+      - mongodb_mms_agent_pkg
+      - mongodb_mms_group_id
+      - mongodb_mms_api_key
+      - mongodb_mms_base_url
+      # Free cloud monitoring — deprecated upstream in MongoDB 6.0
+      - mongodb_cloud_enabled
+      - mongodb_cloud_monitoring_free_state
+      # mmapv1 storage — engine removed in MongoDB 4.2; v2.0 supports 6.0+
+      - mongodb_storage_quota_enforced
+      - mongodb_storage_quota_maxfiles
+      - mongodb_storage_smallfiles
+      - mongodb_storage_prealloc
+      # Architecture conflation — split into mongodb_apt_arch, mongodb_rpm_arch, mongodb_exporter_arch
+      - bin_arch
+      # Dead code — MongoDB HTTP interface removed in 3.6
+      - mongodb_net_http_enabled
+  when: item in vars
+
+- name: Reject legacy SSL config dict (dict-variant guard)
+  ansible.builtin.fail:
+    msg: >-
+      'mongodb_net_ssl_config' was removed in v2.0.0 (nested dict variant).
+      Use the flat mongodb_net_tls_* vars instead. See docs/MIGRATION-v2.md §6.3.
+  when:
+    - mongodb_net_ssl_config is defined
+    - mongodb_net_ssl_config | length > 0
+
+# === MongoDB major version validation ===
+- name: Assert MongoDB major version is supported
+  ansible.builtin.assert:
     that:
-      - groups[mongodb_replication_host_group] is defined
-    fail_msg: "Create '{{ mongodb_replication_host_group }}' group in hosts file and add your servers to it!"
-    quiet: true
-  when: 
-    - mongodb_replication_enabled
-    - not mongodb_sharding_enabled
-    - mongodb_main_group != mongos_host_group
-  tags: [mongodb, mongodb-configure]
+      - mongodb_major_version in ['6.0', '7.0', '8.0']
+    fail_msg: >-
+      Unsupported MongoDB major version: {{ mongodb_major_version }}.
+      Allowed values: 6.0 (deprecated/EOL, requires opt-in), 7.0, 8.0.
+      Update mongodb_version in your inventory.
 
-- name: Check the Groups '{{ mongodb_sharded_host_group }}[0-9]+' and '{{ mongodb_config_host_group }}' and '{{ mongos_host_group }}' Exists if Sharded Cluster
-  assert:
+- name: Require explicit opt-in for deprecated MongoDB 6.0
+  ansible.builtin.fail:
+    msg: |
+      MongoDB 6.0 reached end of life on 2025-07-31 and is no longer supported upstream.
+      To proceed anyway, set mongodb_allow_eol_version: true in your inventory.
+      Strongly recommended: upgrade to MongoDB 7.0 or 8.0.
+  when:
+    - mongodb_major_version == "6.0"
+    - not (mongodb_allow_eol_version | default(false) | bool)
+
+- name: Warn when using EOL MongoDB 6.0
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: MongoDB 6.0 is end-of-life. Plan migration to 7.0 or 8.0.
+  when: mongodb_major_version == "6.0"
+
+# === Support matrix (MongoDB x OS x arch) ===
+- name: Assert (MongoDB version, OS, architecture) combination is supported
+  ansible.builtin.assert:
     that:
-      - mongodb_main_group|regex_replace('[0-9]+$','') in mongodb_valid_groups
-    fail_msg: "Create '{{ mongodb_sharded_host_group }}[0-9]+' and '{{ mongodb_config_host_group }}' and '{{ mongos_host_group }}' groups in hosts file and add your servers to it!"
-    quiet: true
-  when: 
-    - mongodb_sharding_enabled
-  tags: [mongos, mongos-configure, mongos-sharding]
+      - mongodb_major_version in mongodb_support_matrix
+      - ansible_distribution in mongodb_support_matrix[mongodb_major_version]
+      - ansible_distribution_major_version in mongodb_support_matrix[mongodb_major_version][ansible_distribution]
+      - ansible_architecture in mongodb_support_matrix[mongodb_major_version][ansible_distribution][ansible_distribution_major_version]
+    fail_msg: >-
+      Unsupported combination: MongoDB {{ mongodb_major_version }} on
+      {{ ansible_distribution }} {{ ansible_distribution_major_version }}
+      ({{ ansible_architecture }}).
+      See docs/SUPPORT-MATRIX.md for the full supported combinations.
 
-- name: Check Value of Variable mongodb_master if mongodb_replication_enabled is True
-  assert:
+# === PyMongo version check ===
+# Note: pymongo is installed by install.requirements.yml AFTER validate.yml runs.
+# This check is a runtime guard — it skips silently when pymongo isn't yet installed
+# (first-run path), and asserts >=4.6 on subsequent runs (re-apply path).
+- name: Detect pymongo presence
+  ansible.builtin.command: >
+    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c "import pymongo"
+  register: pymongo_present
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in (groups[mongodb_replication_host_group] | default([]))
+
+- name: Assert pymongo >= 4.6 (when present)
+  ansible.builtin.command: >
+    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c
+    "from packaging.version import Version; import pymongo;
+    assert Version(pymongo.__version__) >= Version('4.6'),
+    'pymongo ' + pymongo.__version__ + ' < 4.6'"
+  changed_when: false
+  when:
+    - inventory_hostname in (groups[mongodb_replication_host_group] | default([]))
+    - pymongo_present.rc | default(1) == 0
+
+# === x86-64-v2 microarchitecture check (MongoDB 7.0+ on x86_64) ===
+- name: Locate ld.so cross-platform
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /lib64/ld-linux-x86-64.so.2
+    - /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+  register: ldso_probe
+  when:
+    - ansible_architecture == "x86_64"
+    - mongodb_major_version in ['7.0', '8.0']
+
+- name: Set ld.so path fact
+  ansible.builtin.set_fact:
+    _ldso_path: >-
+      {{ (ldso_probe.results
+          | selectattr('stat.exists', 'equalto', true)
+          | map(attribute='item')
+          | list + [''])[0] }}
+  when:
+    - ansible_architecture == "x86_64"
+    - mongodb_major_version in ['7.0', '8.0']
+
+- name: Query ld.so for supported microarchitectures
+  ansible.builtin.command: "{{ _ldso_path }} --help"
+  register: ld_help
+  changed_when: false
+  failed_when: false
+  when:
+    - ansible_architecture == "x86_64"
+    - mongodb_major_version in ['7.0', '8.0']
+    - _ldso_path | default('') | length > 0
+
+- name: Assert x86-64-v2 microarchitecture support (MongoDB 7.0+ requires x86-64-v2)
+  ansible.builtin.assert:
     that:
-      - "{{ hostvars|dictsort|selectattr('1.mongodb_main_group', 'defined')|selectattr('1.mongodb_main_group', 'equalto', mongodb_main_group)|selectattr('1.mongodb_master', 'defined')|map(attribute='1.mongodb_master')|list }}"
-    fail_msg: 'Set mongodb_master to True next to the master server in hosts file!'
-    quiet: true
-  when: 
-    - mongodb_replication_enabled
-    - mongodb_main_group != mongos_host_group
-    - mongodb_main_group != 'ungrouped'
-  tags: [mongodb, mongos, mongodb-configure, mongos-sharding]
+      - _ldso_path | default('') | length > 0
+      - ld_help.rc | default(1) == 0
+      - "'x86-64-v2 (supported' in (ld_help.stdout | default(''))"
+    fail_msg: >-
+      MongoDB {{ mongodb_major_version }} requires x86-64-v2 microarchitecture.
+      One of: (1) CPU does not support x86-64-v2 SSE4.2/POPCNT instructions,
+      (2) ld.so could not be located (found: '{{ _ldso_path | default("not found") }}'),
+      (3) ld.so --help output format changed unexpectedly.
+      Remediation: upgrade the host hardware to x86-64-v2 or later,
+      or use an aarch64 host where this check does not apply.
+  when:
+    - ansible_architecture == "x86_64"
+    - mongodb_major_version in ['7.0', '8.0']
 
-- name: Check Value of Variable mongodb_keyfile_content if mongodb_replication_enabled is True
-  assert:
+# === TLS preflight ===
+- name: Assert TLS required vars are set when TLS is enabled
+  ansible.builtin.assert:
     that:
-      - mongodb_keyfile_content | length > 0
-    fail_msg: 'Set mongodb_keyfile_content or mongodb_replication_enabled to False!'
-    quiet: true
-  when: 
-    - mongodb_replication_enabled or mongodb_main_group == mongos_host_group
-    - mongodb_main_group != 'ungrouped'
-  tags: [mongodb, mongos, mongodb-configure, mongos-configure]
+      - mongodb_net_tls_certificateKeyFile | length > 0
+      - mongodb_net_tls_CAFile | length > 0
+      - mongodb_net_tls_mode in ['allowTLS', 'preferTLS', 'requireTLS']
+    fail_msg: >-
+      mongodb_net_tls_enabled=true requires all of the following to be set:
+      mongodb_net_tls_certificateKeyFile (path to PEM key file),
+      mongodb_net_tls_CAFile (path to CA file),
+      mongodb_net_tls_mode (one of: allowTLS, preferTLS, requireTLS).
+  when: mongodb_net_tls_enabled | bool
 
-- name: Check that Admins Passwords are Not Empty
-  assert:
+- name: Assert TLS certificate files exist on target host
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: tls_files
+  failed_when: not tls_files.stat.exists
+  loop: >-
+    {{ [mongodb_net_tls_certificateKeyFile, mongodb_net_tls_CAFile]
+       + ([mongodb_net_tls_CRLFile] if mongodb_net_tls_CRLFile | length > 0 else [])
+       + ([mongodb_net_tls_clusterFile] if mongodb_net_tls_clusterFile | length > 0 else [])
+       + ([mongodb_net_tls_clusterCAFile] if mongodb_net_tls_clusterCAFile | length > 0 else []) }}
+  when: mongodb_net_tls_enabled | bool
+
+# === Rolling restart preflight warning ===
+- name: Warn if multi-node group applied without serial directive
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: This role is being applied to a multi-node group
+      ({{ groups[mongodb_main_group] | default([]) | length }} members in '{{ mongodb_main_group }}')
+      without serial: 1 in your playbook.
+      Auth bootstrap requires a controlled rolling restart — running without serial
+      may cause authentication failures during convergence.
+      Set mongodb_allow_non_serial_apply: true to suppress this warning
+      if you have handled the rolling restart at the playbook level.
+  when:
+    - groups[mongodb_main_group] | default([]) | length > 1
+    - not (mongodb_allow_non_serial_apply | default(false) | bool)
+
+# === Required password vars ===
+- name: Assert required admin passwords are set (non-empty)
+  ansible.builtin.assert:
     that:
       - mongodb_root_admin_password | length > 0
       - mongodb_user_admin_password | length > 0
-      - mongodb_root_backup_password | length > 0
-      - "{% if mongodb_exporter_enabled %}mongodb_exporter_password | length > 0{% endif %}"
-    quiet: true
-  when: 
-    - mongodb_main_group != mongos_host_group
-  tags: [mongodb, mongos, mongodb-configure, mongodb-replicaset, mongos-sharding, mongodb-create-admin-users, mongodb-exporter]
+    fail_msg: >-
+      Both mongodb_root_admin_password and mongodb_user_admin_password must be
+      set to non-empty values. Use ansible-vault to store them securely.
+      Example: ansible-vault encrypt_string 'mypassword' --name 'mongodb_root_admin_password'
+  when: mongodb_main_group | default('') != mongos_host_group
 
-- name: Check that Root User '{{ mongodb_root_admin_name }}' Already Exists in the Replicaset
-  mongodb_status_edited: # Module allows validate: ['primary', 'reconfigure']
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_replset }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-    poll: 3
-    interval: 1
-    validate: "primary"
-  ignore_errors: true
-  register: mongodb_root_admin_exist_replicaset
-  when:
-    - mongodb_replication_enabled
-    - mongodb_master is defined
-    - mongodb_master
-    - mongodb_main_group != mongos_host_group
-    - mongodb_main_group != 'ungrouped'
-  tags: [mongodb, mongos, mongodb-configure, mongodb-replicaset, mongodb-create-admin-users, mongodb-add-users, mongodb-commands, mongos-sharding, mongodb-exporter]
-
-- name: Check that Root User '{{ mongodb_root_admin_name }}' Already Exists in the Standalone
-  community.mongodb.mongodb_info:
-    login_user: "{{ mongodb_root_admin_name }}"
-    login_password: "{{ mongodb_root_admin_password }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  ignore_errors: true
-  register: mongodb_root_admin_exist_standalone
-  when: 
-    - not mongodb_replication_enabled
-    - mongodb_main_group != mongos_host_group
-    - mongodb_main_group != 'ungrouped'
-  tags: [mongodb, mongodb-configure, mongodb-create-admin-users, mongodb-add-users, mongodb-commands, mongodb-exporter]
-
-- name: Set Results of Root User '{{ mongodb_root_admin_name }}' Existence Check
-  set_fact: 
-    mongodb_root_admin_exist: "{{ mongodb_root_admin_exist_replicaset | default({}) | combine(mongodb_root_admin_exist_standalone | default({}))  }}"
-  when: 
-    - mongodb_main_group != mongos_host_group
-  tags: [mongodb, mongos, mongodb-configure, mongodb-replicaset, mongodb-create-admin-users, mongodb-add-users, mongodb-commands, mongos-sharding, mongodb-exporter]
-
-- name: Check that Normal User's Dictionary is Correctly Filled
-  assert:
+# === Keyfile content required for replicaset ===
+- name: Assert keyfile content is set for replicaset member
+  ansible.builtin.assert:
     that:
-      - item.name is defined and item.name|length > 0
-      - "{% if not (item.state is defined and item.state == 'absent') %}item.password is defined and item.password|length > 0{% endif %}"
-      - "{% if not (item.state is defined and item.state == 'absent') %}item.roles is defined and item.roles|length > 0{% endif %}"
-    quiet: true
-    fail_msg: "Fill in the user's dictionary correctly!"
-  register: _mongodb_users_check
-  with_items:
-    - "{{ mongodb_users }}"
+      - mongodb_security_keyfile_content | length > 0
+    fail_msg: >-
+      mongodb_security_keyfile_content is required when mongodb_replication_replSetName
+      is set (replicaset or sharded cluster member).
+      Generate a secure keyfile: openssl rand -base64 756
+      Store the value in ansible-vault.
   when:
-    - (mongodb_replication_enabled and mongodb_master is defined and mongodb_master) or not mongodb_replication_enabled
-    - mongodb_users is defined
-    - mongodb_users | length > 0
-    - mongodb_main_group != mongos_host_group
-  tags: [mongodb, mongodb-add-users]
-
-- name: Register CPU AVX Flag if Used mongodb_version >= '5.0'
-  shell: "set -o pipefail && grep -m 1 ^flags /proc/cpuinfo | grep -qw avx"
-  args:
-    executable: "/bin/bash"
-  register: cpu_avx_flag_support
-  changed_when: false
-  ignore_errors: true
-  when: mongodb_major_version is version("5.0", ">=")
-  tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongos-sharding]
-
-- name: Check AVX Flag if Used mongodb_version >= '5.0'
-  any_errors_fatal: true
-  assert:
-    that:
-      - cpu_avx_flag_support.rc == 0
-    fail_msg: 'AVX cpu extension must be enabled for mongodb_version >= "5.0"!'
-    quiet: true
-  when: mongodb_major_version is version("5.0", ">=")
-  tags: [mongodb, mongos, mongodb-install, mongos-install, mongodb-configure, mongos-configure, mongos-sharding]
+    - mongodb_replication_replSetName | default('') | length > 0
+    - mongodb_main_group | default('') != mongos_host_group

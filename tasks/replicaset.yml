@@ -1,0 +1,177 @@
+---
+# Bootstrap auth sequence per spec §5.4.
+# MUST be invoked only when mongodb_replication_replSetName is set and
+# the host is not a mongos (enforced by the when-guard in tasks/main.yml).
+#
+# Overview:
+#   Phase 1 — initial bring-up (no keyfile, no auth, localhost exception window):
+#     wait for port → rs.initiate → poll PRIMARY → create admin users
+#   Phase 2 — lock down with keyfile + auth (rolling):
+#     deploy keyfile → re-render mongod.conf with keyFile + auth →
+#     flush handlers (rolling restart via upstream role) → verify auth'd replicaset
+
+# ===========================================================================
+# Phase 1 — initial bring-up (localhost exception window)
+# ===========================================================================
+
+- name: Phase 1.4 — wait for mongod port ready
+  ansible.builtin.wait_for:
+    port: "{{ mongodb_net_port }}"
+    host: 127.0.0.1
+    timeout: 60
+
+- name: Phase 1.5 — initiate replicaset (master gets priority 2, others 1 so election is deterministic)
+  community.mongodb.mongodb_replicaset:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_database: admin
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    members: "{{ _rs_members_with_priority }}"
+  vars:
+    _master_host: "{{ mongodb_replicaset_masters[mongodb_main_group] }}"
+    _rs_members_with_priority: >-
+      [
+        {% for h in groups[mongodb_main_group] %}
+          {
+            "host": "{{ h }}:{{ mongodb_net_port }}",
+            "priority": {{ 2 if h == _master_host else 1 }}
+          }{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+  register: rs_init
+
+# Phase 1.6 — wait until master node reports myState == 1 (PRIMARY).
+# mongodb_status's default convergence check returns "ok" too eagerly on
+# fast runners (returns after rs.status() returns ANY mapping, including
+# transient states like SECONDARY during election). We need myState==1
+# specifically before Phase 1.7's writes will succeed via localhost exception.
+- name: Phase 1.6 — wait for master to reach PRIMARY (myState == 1)
+  ansible.builtin.command: >
+    {{ ansible_python_interpreter | default('/usr/bin/python3') }} -c
+    "import pymongo, sys;
+    c = pymongo.MongoClient('mongodb://127.0.0.1:{{ mongodb_net_port }}/?directConnection=true', serverSelectionTimeoutMS=2000);
+    s = c.admin.command('replSetGetStatus');
+    sys.exit(0 if s.get('myState') == 1 else 1)"
+  register: _phase16_primary
+  retries: 30
+  delay: 2
+  until: _phase16_primary.rc == 0
+  changed_when: false
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+
+- name: Phase 1.7a — create root admin user (localhost exception, no auth yet)
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_root_admin_name }}"
+    password: "{{ mongodb_root_admin_password }}"
+    roles:
+      - root
+    state: present
+    update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  register: _phase17_user
+  retries: 12
+  delay: 5
+  until: _phase17_user is succeeded
+  no_log: true
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+
+- name: Phase 1.7b — create user admin
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_user_admin_name }}"
+    password: "{{ mongodb_user_admin_password }}"
+    roles:
+      - userAdminAnyDatabase
+      - clusterAdmin
+    state: present
+    update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  register: _phase17_user
+  retries: 12
+  delay: 5
+  until: _phase17_user is succeeded
+  no_log: true
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+
+- name: Phase 1.7c — create backup user
+  community.mongodb.mongodb_user:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    database: "{{ mongodb_login_database }}"
+    name: "{{ mongodb_root_backup_name }}"
+    password: "{{ mongodb_root_backup_password }}"
+    roles:
+      - backup
+      - restore
+    state: present
+    update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  register: _phase17_user
+  retries: 12
+  delay: 5
+  until: _phase17_user is succeeded
+  no_log: true
+  when:
+    - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
+    - not (mongodb_replicaset_bootstrapped | default(false))
+
+# ===========================================================================
+# Phase 2 — lock down with keyfile + auth (rolling restart)
+# ===========================================================================
+
+- name: Phase 2.8 — deploy keyfile to all members
+  ansible.builtin.copy:
+    content: "{{ mongodb_security_keyfile_content }}"
+    dest: "{{ mongodb_security_keyfile_path }}"
+    owner: "{{ mongodb_user }}"
+    group: "{{ mongodb_group }}"
+    mode: "0400"
+  no_log: true
+  when: mongodb_security_keyfile_content | length > 0
+
+- name: Phase 2.9 — set marker so configure.yml re-renders mongod.conf with keyFile
+  ansible.builtin.set_fact:
+    mongodb_replicaset_bootstrapped: true
+
+- name: Phase 2.9b — re-include configure.yml to re-render with keyFile + auth
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Phase 2.10 — flush handlers to trigger rolling restart
+  ansible.builtin.meta: flush_handlers
+
+# After restart, nodes need a few seconds to elect a new PRIMARY and reach
+# steady state. mongodb_status fails transiently with NotPrimaryOrSecondary
+# during this window. Retry until it succeeds.
+- name: Phase 2.11a — wait for mongod port after Phase 2 restart
+  ansible.builtin.wait_for:
+    port: "{{ mongodb_net_port }}"
+    host: 127.0.0.1
+    timeout: 60
+
+- name: Phase 2.11b — verify auth-enabled replicaset healthy (uses credentials, with retry)
+  community.mongodb.mongodb_status:
+    login_host: 127.0.0.1
+    login_port: "{{ mongodb_net_port }}"
+    login_user: "{{ mongodb_root_admin_name }}"
+    login_password: "{{ mongodb_root_admin_password }}"
+    login_database: "{{ mongodb_login_database }}"
+    replica_set: "{{ mongodb_replication_replSetName }}"
+    poll: 10
+    interval: 6
+  register: _rs_verify
+  retries: 12
+  delay: 5
+  until: _rs_verify is succeeded
+  no_log: true
+  when: inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]

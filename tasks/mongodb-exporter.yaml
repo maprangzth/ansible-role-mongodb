@@ -1,155 +1,92 @@
 ---
-
-- name: Create MongoDB Monitor User '{{ mongodb_exporter_name }}'
-  community.mongodb.mongodb_user:
-    name: "{{ mongodb_exporter_name }}"
-    password: "{{ mongodb_exporter_password }}"
-    update_password: "{{ mongodb_admin_update_password | ternary('always', 'on_create') }}"
-    state: present
-    roles: [{ db: admin, role: clusterMonitor}, {db: local, role: read }]
-    database: "{{ mongodb_login_database }}"
-    login_user: "{{ (not mongodb_root_admin_exist.failed) | ternary(mongodb_root_admin_name, omit) }}"
-    login_password: "{{ (not mongodb_root_admin_exist.failed) | ternary(mongodb_root_admin_password, omit) }}"
-    login_host: "{{ inventory_hostname }}"
-    login_port: "{{ mongodb_net_port }}"
-    login_database: "{{ mongodb_login_database }}"
-    replica_set: "{{ mongodb_replication_enabled | ternary(mongodb_replication_replset, omit) }}"
-    tls: "{{ ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['mode'] is regex('requireSSL|preferSSL')) or
-              (mongodb_net_tls_enabled and mongodb_net_tls_config['mode'] is regex('requireTLS|preferTLS'))) }}"
-    tlsCertificateKeyFile:
-           "{{ mongodb_net_ssl_PEMKeyFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyFileContent'] is defined and mongodb_net_ssl_config['PEMKeyFileContent']|length > 0) else
-               mongodb_net_tls_certificateKeyFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFileContent'] is defined and mongodb_net_tls_config['certificateKeyFileContent']|length > 0) else omit }}"
-    tlsCertificateKeyFilePassword:
-           "{{ mongodb_net_ssl_config['PEMKeyPassword'] if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['PEMKeyPassword'] is defined and mongodb_net_ssl_config['PEMKeyPassword']|length > 0) else
-               mongodb_net_tls_config['certificateKeyFilePassword'] if (mongodb_net_tls_enabled and mongodb_net_tls_config['certificateKeyFilePassword'] is defined and mongodb_net_tls_config['certificateKeyFilePassword']|length > 0) else omit }}"
-    tlsCAFile:
-           "{{ mongodb_net_ssl_CAFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CAFileContent'] is defined and mongodb_net_ssl_config['CAFileContent']|length > 0) else
-               mongodb_net_tls_CAFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CAFileContent'] is defined and mongodb_net_tls_config['CAFileContent']|length > 0) else omit }}"
-    ssl_crlfile:
-           "{{ mongodb_net_ssl_CRLFile_path if (mongodb_net_ssl_enabled and mongodb_net_ssl_config['CRLFileContent'] is defined and mongodb_net_ssl_config['CRLFileContent']|length > 0) else
-               mongodb_net_tls_CRLFile_path if (mongodb_net_tls_enabled and mongodb_net_tls_config['CRLFileContent'] is defined and mongodb_net_tls_config['CRLFileContent']|length > 0) else omit }}"
-    tlsAllowInvalidCertificates:
-          "{{ 'CERT_NONE' if ((not mongodb_net_ssl_enabled) and (not mongodb_net_tls_enabled)) else
-              'CERT_OPTIONAL' if ((mongodb_net_ssl_enabled and mongodb_net_ssl_config['allowInvalidCertificates'] is defined and mongodb_net_ssl_config['allowInvalidCertificates']) or (mongodb_net_tls_enabled and mongodb_net_tls_config['allowInvalidCertificates'] is defined and mongodb_net_tls_config['allowInvalidCertificates'])) else
-              'CERT_REQUIRED' }}"
-  when: 
-    - (mongodb_replication_enabled and mongodb_master is defined and mongodb_master) or (not mongodb_replication_enabled)
-    - mongodb_main_group != mongos_host_group
-  tags: [mongodb, mongodb-exporter]
+# NOTE: The exporter MongoDB user is created in tasks/create_users.yml
+# (Phase 3 — after auth bootstrap). This file installs only the binary +
+# systemd unit.
 
 - name: Check Installed MongoDB Prometheus Exporter Version
-  shell: "{{ mongodb_exporter_path }} --version | grep 'Version:' | cut -d ' ' -f 2"
+  ansible.builtin.command: "{{ mongodb_exporter_path }} --version"
   failed_when: false
   changed_when: false
   register: mongodb_exporter_exists_version
   tags: [mongodb, mongos, mongodb-exporter]
 
-- block: # Install MongoDB Prometheus Exporter
-  - name: Create MongoDB Prometheus Exporter Linux User '{{ mongodb_exporter_user }}'
-    user:
-      name: "{{ mongodb_exporter_user }}"
-      comment: "MongoDB Prometheus Exporter User (Ansible Managed)"
-      createhome: "no"
-      shell: "/usr/sbin/nologin"
-      system: "yes"
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Create Temporary MongoDB Prometheus Exporter Directory
-    file:
-      path: "{{ mongodb_exporter_temp_dir }}"
-      state: directory
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Set MongoDB Prometheus Exporter Version '{{ mongodb_exporter_version_arbiter }}' for Arbiter
-    set_fact:
-      mongodb_exporter_version: "{{ mongodb_exporter_version_arbiter }}"
-    when:
-      - mongodb_arbiter is defined
-      - mongodb_arbiter
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  # https://github.com/percona/mongodb_exporter/releases/download/v0.37.0/mongodb_exporter_0.37.0_checksums.txt
-  - name: Download MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}' Checksums from the Github Repo
-    get_url:
-      url: "{{ mongodb_exporter_checksum_link if mongodb_exporter_version is version('0.20.0', '>=') else mongodb_exporter_checksum_link|replace('_' + mongodb_exporter_version + '_', '-' + mongodb_exporter_version + '-' ) }}"
-      dest: "{{ mongodb_exporter_checksum_path }}"
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Set Stat for MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}' Streaming Binary Checksums
-    stat:
-      path: "{{ mongodb_exporter_checksum_path }}"
-    register: mongodb_exporter_binary_checksums_fact
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Register the Checksum Value for MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}'
-    shell: "set -o pipefail && cat {{ mongodb_exporter_checksum_path }} | grep {{ os }}-{{ bin_arch }}.tar.gz | awk '{ print $1 }'"
-    args:
-      executable: "/bin/bash"
-    register: mongodb_exporter_checksum_value
-    when: mongodb_exporter_binary_checksums_fact.stat.exists
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  # https://github.com/percona/mongodb_exporter/releases/download/v0.37.0/mongodb_exporter-0.37.0.linux-amd64.tar.gz
-  - name: Download MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}' from the Github Repo
-    get_url:
-      url: "{{ mongodb_exporter_link }}"
-      dest: "{{ mongodb_exporter_temp_dir }}"
-      mode: 0755
-      checksum: sha256:{{ mongodb_exporter_checksum_value.stdout }}
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Extract MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}' Streaming Binary
-    unarchive:
-      src: "{{ mongodb_exporter_temp_dir }}/mongodb_exporter-{{ mongodb_exporter_version }}.{{ os }}-{{ bin_arch }}.tar.gz"
-      dest: "{{ mongodb_exporter_temp_dir }}"
-      remote_src: yes
-      mode: 0755
-      list_files: true
-      extra_opts: "{{ '--strip-components=1' if mongodb_exporter_version is version('0.20.0', '>=') else omit }}"
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Register a Downloaded File Status
-    stat:
-      path: "{{ mongodb_exporter_temp_dir }}/mongodb_exporter"
-    register: download_result_exporter
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Ensure the Downloaded MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}' File Exist
-    assert:
-      that:
-        - download_result_exporter.stat.exists
-      fail_msg: 'MongoDB Prometheus Exporter {{ mongodb_exporter_version }} has not been downloaded!'
-      quiet: true
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Copy MongoDB Prometheus Exporter '{{ mongodb_exporter_version }}' Binary to /usr/local/bin
-    copy:
-      src: "{{ mongodb_exporter_temp_dir }}/mongodb_exporter"
-      dest: "{{ mongodb_exporter_path }}"
-      mode: '0755'
-      owner: "{{ mongodb_exporter_user }}"
-      group: "{{ mongodb_exporter_group }}"
-      remote_src: yes
-    notify:
-      - Restart MongoDB-Exporter
-    when: download_result_exporter.stat.exists
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  - name: Delete Downloaded Files
-    file:
-      path: "{{ mongodb_exporter_temp_dir }}"
-      state: absent
-    tags: [mongodb, mongos, mongodb-exporter]
-
-  when: 
-    - ((mongodb_arbiter is defined and mongodb_arbiter)|ternary(mongodb_exporter_version_arbiter, mongodb_exporter_version) not in mongodb_exporter_exists_version.stdout_lines|string|default()) or mongodb_exporter_force_install
+- name: Install MongoDB Prometheus Exporter  # noqa: block-has-explicit-name
+  when:
+    - mongodb_exporter_version not in mongodb_exporter_exists_version.stdout | default('')
   tags: [mongodb, mongos, mongodb-exporter]
+  block:
+    - name: Create MongoDB Prometheus Exporter Linux User '{{ mongodb_exporter_user }}'
+      ansible.builtin.user:
+        name: "{{ mongodb_exporter_user }}"
+        comment: "MongoDB Prometheus Exporter User (Ansible Managed)"
+        create_home: false
+        shell: "/usr/sbin/nologin"
+        system: true
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    - name: Create Temporary MongoDB Prometheus Exporter Directory
+      ansible.builtin.file:
+        path: "{{ mongodb_exporter_temp_dir }}"
+        state: directory
+        mode: "0750"
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    # https://github.com/percona/mongodb_exporter/releases/download/v0.51.0/mongodb_exporter-0.51.0.linux-amd64.tar.gz
+    - name: Download mongodb-exporter (pinned + checksum) version {{ mongodb_exporter_version }}
+      ansible.builtin.get_url:
+        url: "{{ mongodb_exporter_link }}"
+        dest: "{{ mongodb_exporter_temp_dir }}/mongodb-exporter.tar.gz"
+        checksum: "sha256:{{ mongodb_exporter_sha256[mongodb_exporter_arch] }}"
+        mode: "0640"
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    - name: Extract MongoDB Prometheus Exporter binary version {{ mongodb_exporter_version }}
+      ansible.builtin.unarchive:
+        src: "{{ mongodb_exporter_temp_dir }}/mongodb-exporter.tar.gz"
+        dest: "{{ mongodb_exporter_temp_dir }}"
+        remote_src: true
+        mode: "0755"
+        extra_opts: "--strip-components=1"
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    - name: Assert MongoDB Prometheus Exporter Binary Exists After Extract
+      ansible.builtin.stat:
+        path: "{{ mongodb_exporter_temp_dir }}/mongodb_exporter"
+      register: download_result_exporter
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    - name: Ensure MongoDB Prometheus Exporter binary exists after extraction
+      ansible.builtin.assert:
+        that:
+          - download_result_exporter.stat.exists
+        fail_msg: "MongoDB Prometheus Exporter {{ mongodb_exporter_version }} binary not found after extraction!"
+        quiet: true
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    - name: Copy MongoDB Prometheus Exporter binary to {{ mongodb_exporter_path }}
+      ansible.builtin.copy:
+        src: "{{ mongodb_exporter_temp_dir }}/mongodb_exporter"
+        dest: "{{ mongodb_exporter_path }}"
+        mode: "0755"
+        owner: "{{ mongodb_exporter_user }}"
+        group: "{{ mongodb_exporter_group }}"
+        remote_src: true
+      notify:
+        - Restart MongoDB-Exporter
+      when: download_result_exporter.stat.exists
+      tags: [mongodb, mongos, mongodb-exporter]
+
+    - name: Delete Temporary MongoDB Prometheus Exporter Download Directory
+      ansible.builtin.file:
+        path: "{{ mongodb_exporter_temp_dir }}"
+        state: absent
+      tags: [mongodb, mongos, mongodb-exporter]
 
 - name: Create MongoDB Prometheus Exporter Service File
-  template:
+  ansible.builtin.template:
     src: mongodb-exporter.service.j2
     dest: /etc/systemd/system/mongodb-exporter.service
-    mode: 0644
+    mode: "0644"
     backup: true
   notify:
     - Systemd Daemon Reload

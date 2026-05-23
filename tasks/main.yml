@@ -1,136 +1,102 @@
 ---
+- name: MongoDB role main orchestration
+  block:
+    - name: Detect host's primary MongoDB group
+      ansible.builtin.set_fact:
+        mongodb_main_group: >-
+          {{ group_names
+             | select('match', (group_names | map('regex_replace', '[0-9]*$', '') | list
+                                | intersect([mongodb_standalone_host_group,
+                                             mongodb_replication_host_group,
+                                             mongodb_sharded_host_group,
+                                             mongodb_config_host_group,
+                                             mongos_host_group])
+                              )[0] | default('') )
+             | list | first | default('') }}
 
-- block:
-  - name: Set Main Group For Hosts
-    set_fact:
-      mongodb_main_group: "{{ group_names|select('match',(group_names|map('regex_replace', '[0-9]*$', '')|list|intersect(mongodb_valid_groups))[0]|default()) | list | first }}"
-    tags: [mongodb, mongos, mongodb-install, mongos-install, mongodb-configure, mongodb-logrotate, mongodb-force-restart, mongos-configure, mongos-logrotate, mongos-force-restart, mongodb-replicaset, mongodb-create-admin-users, mongodb-create-oplog-users, mongodb-add-users, mongodb-commands, mongos-sharding, mongodb-mms, mongodb-exporter, mongodb-uninstall, mongos-uninstall, mongodb-uninstall-exporter, mongodb-dbdelete]
+    - name: Skip host if not in any MongoDB group
+      ansible.builtin.meta: end_host
+      when: mongodb_main_group | length == 0
 
-  - name: Set ansible_distribution_release to Buster (Debian 10) When Bullseye (Debian 11) and MongoDB Version < 5.0.8
-    set_fact:
-      ansible_distribution_release: "buster"
-    when:
-      - ansible_distribution_release == "bullseye"
-      - mongodb_major_version is version("5.0.8", "<")
-    tags: [mongodb, mongos, mongodb-install, mongos-install, mongodb-uninstall, mongos-uninstall, mongodb-dbdelete]
+    - name: Build per-replicaset master map (run_once, excludes arbiters)
+      ansible.builtin.set_fact:
+        mongodb_replicaset_masters: >-
+          {{
+            dict(
+              mongodb_replicaset_groups
+              | zip(
+                  mongodb_replicaset_groups
+                  | map('extract', groups)
+                  | map('sort')
+                  | map('reject', 'in', _arbiter_hosts)
+                  | map('list')
+                  | map('first')
+                )
+            )
+          }}
+      vars:
+        _arbiter_hosts: >-
+          {{ groups['all']
+             | map('extract', hostvars)
+             | selectattr('mongodb_arbiter', 'defined')
+             | selectattr('mongodb_arbiter', 'eq', True)
+             | map(attribute='inventory_hostname')
+             | list }}
+      run_once: true
+      delegate_to: localhost
 
-  - name: Include OS-specific Variables
-    include_vars: "{{ item }}"
-    with_first_found:
-      - "{{ ansible_distribution_release }}.yml"
-      - "{{ ansible_distribution }}.yml"
-      - "{{ ansible_os_family }}.yml"
-    tags: [mongodb, mongos, mongodb-install, mongos-install, mongodb-uninstall, mongos-uninstall, mongodb-dbdelete]
+    - name: Validate (gatekeeper)
+      ansible.builtin.include_tasks: validate.yml
+      tags: [validate]
 
-  - name: Set 'mongodb_master' to 1st Host of Replicaset if It's Not Defined, and Host is Not Arbiter
-    set_fact:
-      mongodb_master: true
-    when:
-      - mongodb_replication_enabled
-      - not hostvars|dictsort|selectattr('1.mongodb_main_group', 'defined')|selectattr('1.mongodb_main_group', 'equalto', mongodb_main_group)|selectattr('1.mongodb_master', 'defined')
-      - inventory_hostname == (hostvars|dict2items|selectattr('value.mongodb_main_group', 'defined')|selectattr('value.mongodb_main_group', 'equalto', mongodb_main_group)|selectattr('value.mongodb_arbiter', 'undefined')|map(attribute='value.inventory_hostname')|list)[0]
-      - mongodb_main_group != mongos_host_group
-    tags: [mongodb, mongos, mongodb-configure, mongodb-replicaset, mongos-sharding, mongodb-create-admin-users, mongodb-create-oplog-users, mongodb-add-users, mongodb-commands, mongodb-exporter]
+    - name: Install requirements (pymongo, python3.9 if needed)
+      ansible.builtin.include_tasks: install.requirements.yml
+      tags: [install]
 
-  - name: Include Installation Requirements Tasks
-    include_tasks: "{{ item }}"
-    with_first_found:
-      - "install.requirements.{{ ansible_distribution | lower }}.yml"
-      - "install.requirements.{{ ansible_os_family | lower }}.yml"
-    tags: [mongodb, mongos, mongodb-install, mongos-install, mongodb-install-requirements]
+    - name: Install MongoDB via community.mongodb.mongodb_repository
+      ansible.builtin.include_tasks: install.yml
+      tags: [install]
 
-  - name: Include Validation Tasks
-    include_tasks: validate.yml
-    tags: [mongodb, mongos, mongodb-configure, mongos-configure, mongodb-replicaset, mongodb-create-admin-users, mongodb-create-oplog-users, mongodb-add-users, mongodb-commands, mongos-sharding, mongodb-exporter]
+    - name: Probe replicaset bootstrap state (sets fact before configure.yml)
+      ansible.builtin.include_tasks: probe_replicaset_state.yml
+      when:
+        - mongodb_replication_replSetName | length > 0
+        - mongodb_main_group != mongos_host_group
+      tags: [configure, replicaset]
 
-  - name: Include MongoDB and MongoDB-Exporter Remove Tasks
-    include_tasks: "{{ item }}"
-    with_first_found:
-      - "uninstall.{{ ansible_distribution_release | lower }}.yml"
-      - "uninstall.{{ ansible_distribution | lower }}.yml"
-      - "uninstall.{{ ansible_os_family | lower }}.yml"
-    tags: [never, mongodb-uninstall, mongos-uninstall, mongodb-uninstall-exporter, mongodb-dbdelete]
+    - name: Configure mongod/mongos/configsvr (delegate to community.mongodb)
+      ansible.builtin.include_tasks: configure.yml
+      tags: [configure]
 
-  - name: Include MongoDB and Mongos Installation Tasks
-    include_tasks: "{{ item }}"
-    with_first_found:
-      - "install.{{ ansible_distribution | lower }}.yml"
-      - "install.{{ ansible_os_family | lower }}.yml"
-    when:
-      - mongodb_replication_reconfigure or mongodb_force_install or mongos_force_install or
-        hostvars | json_query('*.mongodb_root_admin_exist') | length == 0 or
-        true in hostvars | json_query('*.mongodb_root_admin_exist.failed') or
-        '(not reachable/healthy)' in hostvars | json_query('*.mongodb_root_admin_exist.replicaset.*[]')
-    tags: [mongodb, mongos, mongodb-install, mongos-install]
+    - name: Bootstrap replicaset + initial users (Phase 1 + 2 per spec §5.4)
+      ansible.builtin.include_tasks: replicaset.yml
+      when:
+        - mongodb_replication_replSetName | length > 0
+        - mongodb_main_group != mongos_host_group
+      tags: [replicaset]
 
-  - name: Include MongoDB Configuration Tasks
-    include_tasks: configure_mongodb.yml
-    when:
-      - mongodb_main_group != mongos_host_group
-      - mongodb_reconfigure or mongodb_replication_reconfigure or
-        hostvars | json_query('*.mongodb_root_admin_exist') | length == 0 or
-        true in hostvars | json_query('*.mongodb_root_admin_exist.failed') or
-        '(not reachable/healthy)' in hostvars | json_query('*.mongodb_root_admin_exist.replicaset.*[]')
-    tags: [mongodb, mongodb-configure, mongodb-logrotate, mongodb-force-restart]
+    - name: Sharding (preserve-not-regress)
+      ansible.builtin.include_tasks: sharding.yml
+      when: mongodb_main_group == mongos_host_group
+      tags: [sharding]
 
-  - name: Set Arbiter Index if 'mongodb_arbiter' is Defined
-    set_fact:
-      mongodb_arbiter_index: "{{ (hostvars|dictsort|selectattr('1.mongodb_main_group', 'defined')|selectattr('1.mongodb_main_group', 'equalto', item)|selectattr('1.mongodb_arbiter', 'defined')|map(attribute='1.inventory_hostname')|list)[0] }}"
-    with_items:
-      - "{{ mongodb_main_group }}"
-    when:
-      - mongodb_replication_enabled
-      - hostvars|dictsort|selectattr('1.mongodb_main_group', 'defined')|selectattr('1.mongodb_main_group', 'equalto', item)|selectattr('1.mongodb_arbiter', 'defined')
-      - mongodb_main_group != mongos_host_group
-    tags: [mongodb, mongos, mongodb-replicaset, mongos-sharding]
+    - name: Create application users
+      ansible.builtin.include_tasks: create_users.yml
+      when:
+        - mongodb_main_group != mongos_host_group
+        - inventory_hostname == (mongodb_replicaset_masters[mongodb_main_group] | default(''))
+      tags: [users]
 
-  - name: Include Replication Tasks for Master if Root User '{{ mongodb_root_admin_name }}' Does Not Exist or 'mongodb_replication_reconfigure' is True
-    include_tasks: configure_replicaset.yml
-    when:
-      - mongodb_replication_enabled
-      - mongodb_master is defined
-      - mongodb_master
-      - mongodb_main_group != mongos_host_group
-    tags: [mongodb, mongodb-replicaset, mongodb-create-admin-users]
+    - name: Additional commands (opt-in via tag)
+      ansible.builtin.include_tasks: additional_commands.yml
+      tags: [never, commands]
 
-  - name: Include Users Creation Tasks {{ 'for Master' if mongodb_replication_enabled else '' }}
-    include_tasks: create_users.yml
-    when:
-      - (mongodb_replication_enabled and mongodb_master is defined and mongodb_master) or not mongodb_replication_enabled
-      - mongodb_main_group != mongos_host_group
-    tags: [mongodb, mongodb-create-admin-users, mongodb-create-oplog-users, mongodb-add-users]
+    - name: Disable Transparent Huge Pages (if requested + not in unprivileged docker)
+      ansible.builtin.include_tasks: disable_transparent_hugepages.yml
+      when: mongodb_disable_transparent_hugepages | bool
+      tags: [thp]
 
-  - name: Include Additional Command Tasks
-    include_tasks: additional_commands.yml
-    when:
-      - not (hostvars|dict2items|selectattr('value.mongodb_root_admin_exist.failed', 'defined')|map(attribute='value.mongodb_root_admin_exist.failed'))[0]
-      - mongodb_main_group != mongos_host_group
-      - mongodb_arbiter is undefined or not mongodb_arbiter
-    tags: [never, mongodb-commands]
-
-  - name: Include Mongos Configuration Tasks
-    include_tasks: configure_mongos.yml
-    when:
-      - mongodb_main_group == mongos_host_group
-      - mongodb_sharding_enabled
-    tags: [mongos, mongos-configure, mongos-logrotate, mongos-force-restart]
-
-  - name: Include Mongos Sharding Tasks
-    include_tasks: configure_sharding.yml
-    when:
-      - (mongodb_replication_enabled and mongodb_master is defined and mongodb_master) or not mongodb_replication_enabled
-      - mongodb_sharding_enabled
-    tags: [mongos, mongos-sharding]
-
-  - name: Include MMS Agent Configuration
-    include_tasks: mms-agent.yml
-    when:
-      - mongodb_mms_api_key | length > 0
-    tags: [mongodb, mongos, mongodb-mms]
-
-  - name: Include MongoDB Prometheus Exporter Installation Tasks
-    include_tasks: mongodb-exporter.yaml
-    when:
-      - mongodb_exporter_enabled
-    tags: [mongodb, mongos, mongodb-exporter]
-  when: group_names|select('match',(group_names|map('regex_replace', '[0-9]*$', '')|list|intersect(mongodb_valid_groups))[0]|default()) | list | first | regex_replace('[0-9]*$', '') in mongodb_valid_groups
+    - name: Install mongodb-exporter
+      ansible.builtin.include_tasks: mongodb-exporter.yaml
+      when: mongodb_exporter_enabled | bool
+      tags: [exporter]

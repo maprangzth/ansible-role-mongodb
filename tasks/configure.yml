@@ -1,0 +1,165 @@
+---
+# Configure mongod / configsvr / mongos by branching on host group.
+# Delegates to community.mongodb upstream roles. This file is the
+# translation boundary between our role's externally-facing variables
+# (mongodb_* / mongos_* — defined in defaults/main.yml) and the
+# upstream collection's short snake_case var names.
+#
+# Authoritative mapping: docs/PRESPIKE-VERIFICATION.md §Naming Convention Summary
+#
+# KNOWN CONSTRAINTS (upstream limitations, not bugs here):
+#   - TLS mode is always `requireTLS` when mongodb_use_tls=true — upstream
+#     hardcodes it; mongodb_net_tls_mode is therefore ignored.
+#   - sharding.clusterRole is NOT a var: `shardsvr` is hardcoded in
+#     mongodb_mongod and `configsvr` is hardcoded in mongodb_config.
+#   - mongos_force_install has no upstream equivalent — not mapped.
+#   - FCV (featureCompatibilityVersion) management is not in community.mongodb
+#     configure roles — caller must handle via mongodb_shell module separately.
+
+# ---------------------------------------------------------------------------
+# 1. Standalone + replicaset members + shard data nodes (all use mongodb_mongod)
+# ---------------------------------------------------------------------------
+- name: Configure mongod (standalone / replicaset member / shard data node)
+  ansible.builtin.include_role:
+    name: community.mongodb.mongodb_mongod
+  vars:
+    # Network — upstream: bind_ip / bind_ip_all / mongod_port
+    bind_ip: "{{ mongodb_net_bindIp }}"
+    bind_ip_all: "{{ mongodb_net_bind_ip_all | bool }}"
+    mongod_port: "{{ mongodb_net_port }}"
+
+    # Storage — upstream: db_path
+    db_path: "{{ mongodb_storage_dbPath }}"
+
+    # Replication — upstream: repl_set_name / replicaset
+    repl_set_name: "{{ mongodb_replication_replSetName }}"
+    replicaset: "{{ (mongodb_replication_replSetName | length > 0) | bool }}"
+
+    # Sharding — upstream: sharding (bool; clusterRole shardsvr is hardcoded)
+    sharding: >-
+      {{ (mongodb_main_group | default(''))
+         is search('^' + mongodb_sharded_host_group) }}
+
+    # Security / keyfile / authorization — upstream gates the keyfile copy task
+    # on `when: authorization == "enabled"`. So we use the `authorization` var
+    # as the single switch for spec §5.4's two-phase flow:
+    #   Phase 1 (mongodb_replicaset_bootstrapped = false): authorization=disabled
+    #     → upstream skips keyfile copy, no security.authorization in mongod.conf,
+    #       auth is OFF. rs.initiate runs unauth'd; first admin created via
+    #       localhost exception.
+    #   Phase 2 (after replicaset.yml sets the bootstrapped fact + redeploys
+    #     this include): authorization=enabled
+    #     → upstream copies keyfile to mode-0400 file, enables auth in mongod.conf,
+    #       restarts mongod. Replicaset members reauth with shared keyfile.
+    authorization: >-
+      {{ 'enabled' if (mongodb_replicaset_bootstrapped | default(false)) | bool
+         else 'disabled' }}
+    openssl_keyfile_path: "{{ mongodb_security_keyfile_path }}"
+    openssl_keyfile_content: "{{ mongodb_security_keyfile_content }}"
+
+    # TLS — upstream: mongodb_use_tls (bool, mode hardcoded requireTLS)
+    # NOTE: mongodb_net_tls_mode is NOT mappable — upstream always uses requireTLS
+    # when TLS is enabled. See docs/PRESPIKE-VERIFICATION.md §Gaps item 2.
+    mongodb_use_tls: "{{ mongodb_net_tls_enabled | bool }}"
+    mongodb_certificate_key_file: "{{ mongodb_net_tls_certificateKeyFile }}"
+    mongodb_certificate_ca_file: "{{ mongodb_net_tls_CAFile }}"
+    mongodb_disabled_tls_protocols: "{{ mongodb_net_tls_disabledProtocols }}"
+    mongodb_allow_connections_without_certificates: >-
+      {{ mongodb_net_tls_allowConnectionsWithoutCertificates | bool }}
+
+    # Admin credentials — upstream: mongodb_admin_user / mongodb_admin_pwd
+    mongodb_admin_user: "{{ mongodb_root_admin_name }}"
+    mongodb_admin_pwd: "{{ mongodb_root_admin_password }}"
+
+    # Restart control — upstream: skip_restart (true = let us control restarts)
+    skip_restart: false
+
+  when: >-
+    mongodb_main_group == mongodb_standalone_host_group
+    or mongodb_main_group == mongodb_replication_host_group
+    or (mongodb_main_group | default('')) is search('^' + mongodb_sharded_host_group)
+
+# ---------------------------------------------------------------------------
+# 2. Config server replicaset (clusterRole: configsvr hardcoded in upstream)
+# ---------------------------------------------------------------------------
+- name: Configure mongod as configsvr (config server replicaset)
+  ansible.builtin.include_role:
+    name: community.mongodb.mongodb_config
+  vars:
+    # Network — upstream: bind_ip / bind_ip_all
+    bind_ip: "{{ mongodb_net_bindIp }}"
+    bind_ip_all: "{{ mongodb_net_bind_ip_all | bool }}"
+
+    # Storage — upstream: db_path
+    db_path: "{{ mongodb_storage_dbPath }}"
+
+    # Replication — upstream: config_repl_set_name (NOT repl_set_name for this role)
+    config_repl_set_name: "{{ mongodb_replication_replSetName }}"
+
+    # Security / keyfile / authorization — same two-phase pattern as mongodb_mongod
+    # (upstream gates keyfile copy on authorization == "enabled").
+    authorization: >-
+      {{ 'enabled' if (mongodb_replicaset_bootstrapped | default(false)) | bool
+         else 'disabled' }}
+    openssl_keyfile_path: "{{ mongodb_security_keyfile_path }}"
+    openssl_keyfile_content: "{{ mongodb_security_keyfile_content }}"
+
+    # TLS — same pattern as mongodb_mongod
+    mongodb_use_tls: "{{ mongodb_net_tls_enabled | bool }}"
+    mongodb_certificate_key_file: "{{ mongodb_net_tls_certificateKeyFile }}"
+    mongodb_certificate_ca_file: "{{ mongodb_net_tls_CAFile }}"
+    mongodb_disabled_tls_protocols: "{{ mongodb_net_tls_disabledProtocols }}"
+    mongodb_allow_connections_without_certificates: >-
+      {{ mongodb_net_tls_allowConnectionsWithoutCertificates | bool }}
+
+    # Admin credentials
+    mongodb_admin_user: "{{ mongodb_root_admin_name }}"
+    mongodb_admin_pwd: "{{ mongodb_root_admin_password }}"
+
+    # Restart control
+    skip_restart: false
+
+  when: mongodb_main_group == mongodb_config_host_group
+
+# ---------------------------------------------------------------------------
+# 3. Mongos (query router)
+# ---------------------------------------------------------------------------
+- name: Configure mongos (query router)
+  ansible.builtin.include_role:
+    name: community.mongodb.mongodb_mongos
+  vars:
+    # Network — upstream: bind_ip / bind_ip_all
+    # mongos uses its own net vars (mongos_net_bindIp / mongos_net_port)
+    bind_ip: "{{ mongos_net_bindIp }}"
+    bind_ip_all: "{{ mongodb_net_bind_ip_all | bool }}"
+
+    # Config server connection string — upstream uses config_repl_set_name +
+    # config_servers (comma-separated "host:port" string, NOT a list).
+    # We derive it dynamically from the inventory group.
+    config_repl_set_name: "{{ mongodb_replication_replSetName }}"
+    config_servers: >-
+      {{ groups[mongodb_config_host_group]
+         | map('regex_replace', '$', ':27019')
+         | join(', ') }}
+
+    # Security / keyfile — upstream: openssl_keyfile_path / openssl_keyfile_content
+    openssl_keyfile_path: "{{ mongos_security_keyfile_path }}"
+    openssl_keyfile_content: "{{ mongos_security_keyfile_content }}"
+
+    # TLS — same flat vars as mongod/config roles
+    mongodb_use_tls: "{{ mongodb_net_tls_enabled | bool }}"
+    mongodb_certificate_key_file: "{{ mongodb_net_tls_certificateKeyFile }}"
+    mongodb_certificate_ca_file: "{{ mongodb_net_tls_CAFile }}"
+    mongodb_disabled_tls_protocols: "{{ mongodb_net_tls_disabledProtocols }}"
+    mongodb_allow_connections_without_certificates: >-
+      {{ mongodb_net_tls_allowConnectionsWithoutCertificates | bool }}
+
+    # Restart control
+    skip_restart: false
+
+    # NOTE: mongos_force_install has no upstream equivalent — not mapped.
+    # NOTE: mongos port is not a top-level upstream var for mongos;
+    #   it is baked into config_servers string and the mongos.conf template.
+    #   If a custom port is needed, override config_servers accordingly.
+
+  when: mongodb_main_group == mongos_host_group

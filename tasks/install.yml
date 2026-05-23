@@ -1,0 +1,6 @@
+---
+# mongodb_version is in scope from our role's defaults/main.yml — upstream
+# inherits it automatically. Re-passing via vars: causes recursive templating.
+- name: Delegate package install to community.mongodb.mongodb_repository
+  ansible.builtin.include_role:
+    name: community.mongodb.mongodb_repository

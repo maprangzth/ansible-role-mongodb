@@ -1,8 +1,13 @@
+---
+profile: production
+exclude_paths:
+  - molecule/
+  - tests/
+  - docs/
+  - .github/
+# skip_list intentionally allowed for camelCase var names matching MongoDB config keys:
 skip_list:
-  - fqcn-builtins
-  - ignore-errors
-  - command-instead-of-module
-  - no-changed-when
-  - risky-file-permissions
-  - command-instead-of-shell
-  - experimental
+  - var-naming[pattern]
+  - yaml[line-length]
+  - fqcn[action-core]   # pre-v2 handlers/tasks use short module names (tracked for v2.1)
+  - yaml[truthy]        # daemon_reload: yes in pre-v2 task (tracked for v2.1)

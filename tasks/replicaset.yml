@@ -58,6 +58,10 @@
       - root
     state: present
     update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  register: _phase17_user
+  retries: 12
+  delay: 5
+  until: _phase17_user is succeeded
   no_log: true
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
@@ -75,6 +79,10 @@
       - clusterAdmin
     state: present
     update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  register: _phase17_user
+  retries: 12
+  delay: 5
+  until: _phase17_user is succeeded
   no_log: true
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]
@@ -92,6 +100,10 @@
       - restore
     state: present
     update_password: "{{ 'always' if mongodb_admin_update_password else 'on_create' }}"
+  register: _phase17_user
+  retries: 12
+  delay: 5
+  until: _phase17_user is succeeded
   no_log: true
   when:
     - inventory_hostname == mongodb_replicaset_masters[mongodb_main_group]

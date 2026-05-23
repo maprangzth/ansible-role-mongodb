@@ -6,7 +6,7 @@ driver:
 
 platforms:
   - &node
-    image: "debian:12"
+    image: "debian:11"
     dockerfile: Dockerfile.j2
     privileged: true
     capabilities:
